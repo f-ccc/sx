@@ -4,6 +4,8 @@
 *.o
 *.a
 *.lib
+# 性能分析
+gmon.out
 
 # 数据文件（运行时生成）
 data/*.csv
