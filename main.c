@@ -72,11 +72,13 @@ static int load_data(void)
     
     ret = csv_load_records(g_data_file, g_records, &g_record_count, g_record_capacity);
     if (ret != OK) {
-        printf("警告：无法加载数据文件 %s\n", g_data_file);
+        printf("错误：加载数据文件 %s 失败\n", g_data_file);
         return ERR;
     }
     
-    printf("成功加载 %d 条记录\n", g_record_count);
+    if (g_record_count > 0) {
+        printf("成功加载 %d 条记录\n", g_record_count);
+    }
     return OK;
 }
 
@@ -527,6 +529,7 @@ static void menu_save_load(void)
                 }
             }
             printf("文件路径已修改为: %s\n", g_data_file);
+            printf("提示：保存时将自动创建所需的目录\n");
             pause_msg(NULL);
             break;
     }

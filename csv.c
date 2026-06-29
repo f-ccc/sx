@@ -8,6 +8,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+/* 
+ * 确保文件路径的目录存在，不存在则创建
+ * 如 "data/sub/my.csv" 会创建 data/ 和 data/sub/
+ */
+static int ensure_dir_exists(const char *filename)
+{
+    char dir[MAX_LINE_LEN];
+    int i;
+    int len;
+    
+    /* 复制路径 */
+    len = strlen(filename);
+    if (len >= MAX_LINE_LEN - 1) {
+        return ERR;
+    }
+    for (i = 0; i <= len; i++) {
+        dir[i] = filename[i];
+    }
+    
+    /* 从根开始逐级创建目录 */
+    for (i = 0; dir[i] != '\0'; i++) {
+        if (dir[i] == '/' || dir[i] == '\\') {
+            char saved = dir[i];
+            dir[i] = '\0';
+            /* 尝试创建目录，已存在则忽略错误 */
+            mkdir(dir);
+            dir[i] = saved;
+        }
+    }
+    
+    return OK;
+}
 
 /* 
  * CSV格式说明：
@@ -24,7 +58,17 @@ int csv_save_records(const char *filename, const Record *records, int count)
     
     fp = fopen(filename, "w");
     if (fp == NULL) {
-        printf("错误：无法打开文件 %s 进行写入\n", filename);
+        /* 尝试创建目录后重试 */
+        if (ensure_dir_exists(filename) == OK) {
+            fp = fopen(filename, "w");
+        }
+    }
+    if (fp == NULL) {
+        printf("错误：无法创建/写入文件 %s\n", filename);
+        printf("可能的原因：\n");
+        printf("  1. 路径中含有非法字符（如 : * ? \" < > | 等）\n");
+        printf("  2. 磁盘空间不足或无写入权限\n");
+        printf("  3. 路径过长\n");
         return ERR;
     }
     
@@ -65,8 +109,9 @@ int csv_load_records(const char *filename, Record *records, int *count, int max_
     
     fp = fopen(filename, "r");
     if (fp == NULL) {
-        printf("错误：无法打开文件 %s 进行读取\n", filename);
-        return ERR;
+        /* 文件不存在不是致命错误，返回0条记录即可 */
+        *count = 0;
+        return OK;
     }
     
     /* 跳过表头行 */
