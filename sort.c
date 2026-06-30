@@ -226,41 +226,77 @@ int compare_multi_key(const Record *a, const Record *b, const SortKey *keys, int
 /* ========== 快速排序 ========== */
 
 /* 数组分区 */
-static int partition(Record *records, int low, int high, 
-                     const SortKey *keys, int key_count)
+/* 旧 partition 函数已被 partition_opt + median_of_three 替代 */
+
+/* 三数取中：选low、mid、high的中值作为pivot */
+/* 将中值交换到high位置，返回pivot值 */
+static void median_of_three(Record *records, int low, int high,
+                             const SortKey *keys, int key_count, Record *pivot)
 {
-    Record pivot = records[high];
-    int i = low - 1;
-    int j;
+    int mid = low + (high - low) / 2;
     Record temp;
     
+    /* 比较 low, mid, high，把中值放到 high */
+    if (compare_multi_key(&records[low], &records[mid], keys, key_count) > 0) {
+        temp = records[low]; records[low] = records[mid]; records[mid] = temp;
+    }
+    if (compare_multi_key(&records[low], &records[high], keys, key_count) > 0) {
+        temp = records[low]; records[low] = records[high]; records[high] = temp;
+    }
+    if (compare_multi_key(&records[mid], &records[high], keys, key_count) > 0) {
+        temp = records[mid]; records[mid] = records[high]; records[high] = temp;
+    }
+    /* 现在 high 位置是中值 */
+    *pivot = records[high];
+}
+
+/* 数组分区（标准Lomuto分区，pivot在high位置） */
+static int partition_opt(Record *records, int low, int high,
+                          const SortKey *keys, int key_count)
+{
+    Record pivot;
+    int i, j;
+    Record temp;
+    
+    if (high - low > 1) {
+        median_of_three(records, low, high, keys, key_count, &pivot);
+    } else {
+        pivot = records[high];
+    }
+    
+    i = low - 1;
     for (j = low; j < high; j++) {
         if (compare_multi_key(&records[j], &pivot, keys, key_count) <= 0) {
             i++;
-            /* 交换 */
-            temp = records[i];
-            records[i] = records[j];
-            records[j] = temp;
+            temp = records[i]; records[i] = records[j]; records[j] = temp;
         }
     }
-    
-    temp = records[i + 1];
-    records[i + 1] = records[high];
-    records[high] = temp;
+    temp = records[i + 1]; records[i + 1] = records[high]; records[high] = temp;
     
     return i + 1;
 }
 
-/* 快速排序 */
+/* 
+ * 快速排序（尾递归优化版）
+ * 每次递归处理较小的分区，较大的分区用循环处理
+ * 保证最坏情况下递归深度为 O(log n)
+ */
 void quick_sort_records(Record *records, int low, int high,
                         const SortKey *keys, int key_count)
 {
     int pi;
     
-    if (low < high) {
-        pi = partition(records, low, high, keys, key_count);
-        quick_sort_records(records, low, pi - 1, keys, key_count);
-        quick_sort_records(records, pi + 1, high, keys, key_count);
+    while (low < high) {
+        pi = partition_opt(records, low, high, keys, key_count);
+        
+        /* 尾递归优化：只递归处理较小的分区 */
+        if (pi - low < high - pi) {
+            quick_sort_records(records, low, pi - 1, keys, key_count);
+            low = pi + 1;  /* 循环处理较大的右分区 */
+        } else {
+            quick_sort_records(records, pi + 1, high, keys, key_count);
+            high = pi - 1;  /* 循环处理较大的左分区 */
+        }
     }
 }
 

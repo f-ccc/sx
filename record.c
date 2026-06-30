@@ -552,7 +552,17 @@ void generate_records(Record *records, int count)
                     records[i].semester)));
         
         if (attempts >= MAX_ATTEMPTS) {
-            /* 极端情况下强行写入（几乎不会发生） */
+            /* 极端情况下：手动构造一条合法记录 */
+            strcpy(records[i].student_id, "202400000001");
+            strcpy(records[i].name, "测试用户");
+            strcpy(records[i].college, "计算机科学与工程学院");
+            strcpy(records[i].course_id, "CS300001");
+            strcpy(records[i].course_name, "通识课程");
+            records[i].credit = 2.0f;
+            strcpy(records[i].semester, "2024-01");
+            records[i].enroll_date.year = 2024;
+            records[i].enroll_date.month = 3;
+            records[i].enroll_date.day = 15;
             records[i].score = 75;
         }
     }
@@ -561,7 +571,7 @@ void generate_records(Record *records, int count)
 /* 打印一条记录 */
 void print_record(const Record *rec)
 {
-    printf("| %-12s | %-8s | %-8s | %-8s | %-16s | %-2.1f | %-7s | %04d-%02d-%02d | %3d |\n",
+    printf("| %-12s | %-8s | %-8s | %-8s | %-16s | %5.1f | %-7s | %04d-%02d-%02d | %3d |\n",
            rec->student_id, rec->name, rec->college, rec->course_id, rec->course_name,
            rec->credit, rec->semester,
            rec->enroll_date.year, rec->enroll_date.month, rec->enroll_date.day,

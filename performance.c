@@ -152,25 +152,33 @@ static void test_avl_performance(AVLTree *tree, const Record *records,
         avl_insert(tree, &records[i]);
     }
     
-    /* 遍历测试（中序遍历） */
+    /* 中序遍历（迭代实现，动态分配栈空间） */
     start = get_time_ms();
     {
-        /* 简单中序遍历计数 */
-        AVLNode *stack[1000];
+        int stack_size = 100;
         int top = -1;
         AVLNode *node = tree->root;
+        AVLNode **stack = (AVLNode **)malloc(sizeof(AVLNode *) * stack_size);
         
-        while (node != NULL || top >= 0) {
-            while (node != NULL) {
-                stack[++top] = node;
-                node = node->left;
+        if (stack != NULL) {
+            while (node != NULL || top >= 0) {
+                while (node != NULL) {
+                    /* 栈满时扩容 */
+                    if (top >= stack_size - 1) {
+                        stack_size *= 2;
+                        stack = (AVLNode **)realloc(stack, sizeof(AVLNode *) * stack_size);
+                        if (stack == NULL) break;
+                    }
+                    stack[++top] = node;
+                    node = node->left;
+                }
+                if (top >= 0) {
+                    node = stack[top--];
+                    { volatile int s = node->data.score; (void)s; }
+                    node = node->right;
+                }
             }
-            node = stack[top--];
-            {
-                volatile int s = node->data.score;
-                (void)s;
-            }
-            node = node->right;
+            free(stack);
         }
     }
     end = get_time_ms();

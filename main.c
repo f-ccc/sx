@@ -388,7 +388,6 @@ static void menu_delete_record(void)
 {
     char student_id[MAX_STUDENT_ID_LEN];
     char course_id[MAX_COURSE_ID_LEN];
-    char semester[MAX_SEMESTER_LEN];
     int i;
     int match_count = 0;
     int choice = 0;
@@ -444,7 +443,6 @@ static void menu_delete_record(void)
             pause_msg(NULL);
             return;
         }
-        strcpy(semester, g_records[match_indices[0]].semester);
     } else {
         /* 多条记录（重修导致），让用户选择具体哪条 */
         printf("\n该学生存在多个学期的选课记录，请选择要删除的序号 (1-%d): ", match_count);
@@ -455,9 +453,9 @@ static void menu_delete_record(void)
             pause_msg(NULL);
             return;
         }
-        strcpy(semester, g_records[match_indices[choice - 1]].semester);
         
-        printf("\n确认删除第 %d 条记录（学期 %s）? (y/n): ", choice, semester);
+        printf("\n确认删除第 %d 条记录（学期 %s）? (y/n): ", 
+               choice, g_records[match_indices[choice - 1]].semester);
         fgets(input, sizeof(input), stdin);
         if (input[0] != 'y' && input[0] != 'Y') {
             printf("操作已取消\n");
@@ -547,7 +545,11 @@ static void menu_update_record(void)
     Record new_rec;
     char input[32];
     int i;
-    int found = 0;
+    int match_count = 0;
+    int match_indices[100];
+    int choice = 0;
+    int ret;
+    int duplicate;
     
     clear_screen();
     printf("========================================\n");
@@ -562,49 +564,116 @@ static void menu_update_record(void)
     fgets(course_id, MAX_COURSE_ID_LEN, stdin);
     course_id[strcspn(course_id, "\n")] = '\0';
     
-    /* 查找原记录 */
-    for (i = 0; i < g_record_count; i++) {
+    /* 查找所有匹配记录（支持重修多学期） */
+    for (i = 0; i < g_record_count && match_count < 100; i++) {
         if (strcmp(g_records[i].student_id, student_id) == 0 &&
             strcmp(g_records[i].course_id, course_id) == 0) {
-            found = 1;
-            break;
+            match_indices[match_count++] = i;
         }
     }
     
-    if (!found) {
+    if (match_count == 0) {
         printf("未找到匹配的记录\n");
         pause_msg(NULL);
         return;
     }
     
-    /* 输入新数据 */
-    printf("请输入新的姓名（原: %s）: ", g_records[i].name);
-    fgets(new_rec.name, MAX_NAME_LEN, stdin);
-    new_rec.name[strcspn(new_rec.name, "\n")] = '\0';
+    /* 显示匹配记录让用户选择 */
+    if (match_count == 1) {
+        i = match_indices[0];
+        printf("\n找到记录（学期 %s）:\n", g_records[i].semester);
+        print_record_header();
+        print_record(&g_records[i]);
+        print_record_footer();
+    } else {
+        printf("\n找到 %d 条匹配记录（不同学期）:\n", match_count);
+        print_record_header();
+        for (i = 0; i < match_count; i++) {
+            printf("[%d] ", i + 1);
+            print_record(&g_records[match_indices[i]]);
+        }
+        print_record_footer();
+        printf("请选择要修改的序号 (1-%d): ", match_count);
+        fgets(input, sizeof(input), stdin);
+        choice = atoi(input);
+        if (choice < 1 || choice > match_count) {
+            printf("选择无效\n");
+            pause_msg(NULL);
+            return;
+        }
+        i = match_indices[choice - 1];
+    }
     
-    printf("请输入新的学院（原: %s）: ", g_records[i].college);
-    fgets(new_rec.college, MAX_COLLEGE_LEN, stdin);
-    new_rec.college[strcspn(new_rec.college, "\n")] = '\0';
+    /* 输入新数据（带校验） */
+    while (1) {
+        printf("请输入新的姓名（原: %s）: ", g_records[i].name);
+        fgets(new_rec.name, MAX_NAME_LEN, stdin);
+        new_rec.name[strcspn(new_rec.name, "\n")] = '\0';
+        ret = validate_not_empty(new_rec.name, "姓名");
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
-    printf("请输入新的课程名称（原: %s）: ", g_records[i].course_name);
-    fgets(new_rec.course_name, MAX_COURSE_NAME_LEN, stdin);
-    new_rec.course_name[strcspn(new_rec.course_name, "\n")] = '\0';
+    while (1) {
+        printf("请输入新的学院（原: %s）: ", g_records[i].college);
+        fgets(new_rec.college, MAX_COLLEGE_LEN, stdin);
+        new_rec.college[strcspn(new_rec.college, "\n")] = '\0';
+        ret = validate_not_empty(new_rec.college, "学院");
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
-    printf("请输入新的学分（原: %.1f）: ", g_records[i].credit);
-    fgets(input, sizeof(input), stdin);
-    new_rec.credit = (float)atof(input);
+    while (1) {
+        printf("请输入新的课程名称（原: %s）: ", g_records[i].course_name);
+        fgets(new_rec.course_name, MAX_COURSE_NAME_LEN, stdin);
+        new_rec.course_name[strcspn(new_rec.course_name, "\n")] = '\0';
+        ret = validate_not_empty(new_rec.course_name, "课程名称");
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
-    printf("请输入新的学期（原: %s）: ", g_records[i].semester);
-    fgets(new_rec.semester, MAX_SEMESTER_LEN, stdin);
-    new_rec.semester[strcspn(new_rec.semester, "\n")] = '\0';
+    while (1) {
+        printf("请输入新的学分（原: %.1f）: ", g_records[i].credit);
+        fgets(input, sizeof(input), stdin);
+        new_rec.credit = (float)atof(input);
+        if (new_rec.credit > 0.0f && new_rec.credit <= 20.0f) break;
+        printf("  ⚠ 学分无效（应为0.5~20.0之间的数），请重新输入\n");
+    }
     
-    printf("请输入新的成绩（原: %d）: ", g_records[i].score);
-    fgets(input, sizeof(input), stdin);
-    new_rec.score = atoi(input);
+    while (1) {
+        printf("请输入新的学期（原: %s）: ", g_records[i].semester);
+        fgets(new_rec.semester, MAX_SEMESTER_LEN, stdin);
+        new_rec.semester[strcspn(new_rec.semester, "\n")] = '\0';
+        ret = validate_semester(new_rec.semester);
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
+    while (1) {
+        printf("请输入新的成绩（原: %d）: ", g_records[i].score);
+        fgets(input, sizeof(input), stdin);
+        new_rec.score = atoi(input);
+        ret = validate_score(new_rec.score);
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
+    
+    /* 保留键字段 */
     new_rec.enroll_date = g_records[i].enroll_date;
     strcpy(new_rec.student_id, student_id);
     strcpy(new_rec.course_id, course_id);
+    
+    /* 去重检查：如果学期改了，检查新学期是否已有该课 */
+    if (strcmp(new_rec.semester, g_records[i].semester) != 0) {
+        duplicate = check_duplicate_triple_key(g_records, g_record_count,
+                              new_rec.student_id, new_rec.course_id, new_rec.semester);
+        if (duplicate) {
+            printf("  ❌ 错误：该学生本学期（%s）已选修此课程，不可重复！\n",
+                   new_rec.semester);
+            pause_msg(NULL);
+            return;
+        }
+    }
     
     /* 更新数组 */
     g_records[i] = new_rec;

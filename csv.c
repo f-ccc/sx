@@ -95,6 +95,17 @@ int csv_save_records(const char *filename, const Record *records, int count)
     return OK;
 }
 
+/* 安全字符串拷贝（带边界检查） */
+static void safe_strcpy(char *dest, const char *src, int max_len)
+{
+    int i;
+    if (dest == NULL || max_len <= 0) return;
+    for (i = 0; i < max_len - 1 && src != NULL && src[i] != '\0'; i++) {
+        dest[i] = src[i];
+    }
+    dest[i] = '\0';
+}
+
 /* 
  * 从CSV文件加载记录
  * 注意：简单CSV解析，假设字段内不含逗号和换行符
@@ -144,25 +155,25 @@ int csv_load_records(const char *filename, Record *records, int *count, int max_
         while (token != NULL && field_no < 9) {
             switch (field_no) {
                 case 0: /* 学号 */
-                    strcpy(records[idx].student_id, token);
+                    safe_strcpy(records[idx].student_id, token, MAX_STUDENT_ID_LEN);
                     break;
                 case 1: /* 姓名 */
-                    strcpy(records[idx].name, token);
+                    safe_strcpy(records[idx].name, token, MAX_NAME_LEN);
                     break;
                 case 2: /* 学院 */
-                    strcpy(records[idx].college, token);
+                    safe_strcpy(records[idx].college, token, MAX_COLLEGE_LEN);
                     break;
                 case 3: /* 课程编号 */
-                    strcpy(records[idx].course_id, token);
+                    safe_strcpy(records[idx].course_id, token, MAX_COURSE_ID_LEN);
                     break;
                 case 4: /* 课程名称 */
-                    strcpy(records[idx].course_name, token);
+                    safe_strcpy(records[idx].course_name, token, MAX_COURSE_NAME_LEN);
                     break;
                 case 5: /* 学分 */
                     records[idx].credit = (float)atof(token);
                     break;
                 case 6: /* 选课学期 */
-                    strcpy(records[idx].semester, token);
+                    safe_strcpy(records[idx].semester, token, MAX_SEMESTER_LEN);
                     break;
                 case 7: /* 选课日期 */
                     sscanf(token, "%d-%d-%d", 
