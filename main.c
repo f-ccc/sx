@@ -275,17 +275,6 @@ static void menu_insert_record(void)
         printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
-    /* 去重检查：学号+课程编号+学期 三重键（同一学期重复选课拦截） */
-    duplicate = check_duplicate_triple_key(g_records, g_record_count,
-                                          rec.student_id, rec.course_id, rec.semester);
-    if (duplicate) {
-        printf("  ❌ 错误：学号 %s 本学期（%s）已选修课程 %s，不可重复提交！\n",
-               rec.student_id, rec.semester, rec.course_id);
-        printf("  （如需重修请选择其他学期）\n");
-        pause_msg(NULL);
-        return;
-    }
-    
     /* 输入姓名 */
     while (1) {
         printf("请输入姓名: ");
@@ -339,6 +328,19 @@ static void menu_insert_record(void)
         printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
+    /* ★ 去重检查：学号+课程编号+学期 三重键 */
+    /*   - 同学期=重复拦截                        */
+    /*   - 不同学期=重修场景，自动放行             */
+    duplicate = check_duplicate_triple_key(g_records, g_record_count,
+                                          rec.student_id, rec.course_id, rec.semester);
+    if (duplicate) {
+        printf("  ❌ 错误：学号 %s 本学期（%s）已选修课程 %s，不可重复提交！\n",
+               rec.student_id, rec.semester, rec.course_id);
+        printf("  （如需重修请选择其他学期）\n");
+        pause_msg(NULL);
+        return;
+    }
+    
     /* 输入选课日期 */
     while (1) {
         printf("请输入选课日期（年 月 日，空格分隔）: ");
@@ -386,48 +388,99 @@ static void menu_delete_record(void)
 {
     char student_id[MAX_STUDENT_ID_LEN];
     char course_id[MAX_COURSE_ID_LEN];
+    char semester[MAX_SEMESTER_LEN];
+    int i;
+    int match_count = 0;
+    int choice = 0;
+    char input[32];
+    /* 存储匹配的数组下标 */
+    int match_indices[100];
     
     clear_screen();
     printf("========================================\n");
     printf("          删除选课记录\n");
     printf("========================================\n");
+    printf("当前共 %d 条记录\n\n", g_record_count);
     
+    /* 输入学号 */
     printf("请输入要删除记录的学号: ");
     fgets(student_id, MAX_STUDENT_ID_LEN, stdin);
     student_id[strcspn(student_id, "\n")] = '\0';
     
-    printf("请输入要删除记录的课程编号: ");
+    /* 输入课程编号 */
+    printf("请输入课程编号: ");
     fgets(course_id, MAX_COURSE_ID_LEN, stdin);
     course_id[strcspn(course_id, "\n")] = '\0';
     
-    /* 从所有结构中同步删除 */
-    list_delete(&g_list, student_id, course_id);
-    avl_delete(&g_avl, student_id, course_id);
-    hash_delete(&g_hash, student_id, course_id);
-    
-    /* 也从数组删除 */
-    {
-        int i, j;
-        int found = 0;
-        for (i = 0; i < g_record_count; i++) {
-            if (strcmp(g_records[i].student_id, student_id) == 0 &&
-                strcmp(g_records[i].course_id, course_id) == 0) {
-                found = 1;
-                for (j = i; j < g_record_count - 1; j++) {
-                    g_records[j] = g_records[j + 1];
-                }
-                g_record_count--;
-                break;
-            }
-        }
-        
-        if (found) {
-            printf("删除成功！当前共 %d 条记录\n", g_record_count);
-        } else {
-            printf("未找到匹配的记录\n");
+    /* 查找所有匹配学号+课程编号的记录（不同学期可能有重修） */
+    for (i = 0; i < g_record_count && match_count < 100; i++) {
+        if (strcmp(g_records[i].student_id, student_id) == 0 &&
+            strcmp(g_records[i].course_id, course_id) == 0) {
+            match_indices[match_count++] = i;
         }
     }
     
+    if (match_count == 0) {
+        printf("未找到学号 %s 与课程 %s 的匹配记录\n", student_id, course_id);
+        pause_msg(NULL);
+        return;
+    }
+    
+    /* 显示匹配记录（区分不同学期） */
+    printf("\n找到 %d 条匹配记录:\n", match_count);
+    print_record_header();
+    for (i = 0; i < match_count; i++) {
+        printf("[%d] ", i + 1);
+        print_record(&g_records[match_indices[i]]);
+    }
+    print_record_footer();
+    
+    if (match_count == 1) {
+        /* 仅一条记录，直接确认 */
+        printf("\n确认删除该记录? (y/n): ");
+        fgets(input, sizeof(input), stdin);
+        if (input[0] != 'y' && input[0] != 'Y') {
+            printf("操作已取消\n");
+            pause_msg(NULL);
+            return;
+        }
+        strcpy(semester, g_records[match_indices[0]].semester);
+    } else {
+        /* 多条记录（重修导致），让用户选择具体哪条 */
+        printf("\n该学生存在多个学期的选课记录，请选择要删除的序号 (1-%d): ", match_count);
+        fgets(input, sizeof(input), stdin);
+        choice = atoi(input);
+        if (choice < 1 || choice > match_count) {
+            printf("选择无效\n");
+            pause_msg(NULL);
+            return;
+        }
+        strcpy(semester, g_records[match_indices[choice - 1]].semester);
+        
+        printf("\n确认删除第 %d 条记录（学期 %s）? (y/n): ", choice, semester);
+        fgets(input, sizeof(input), stdin);
+        if (input[0] != 'y' && input[0] != 'Y') {
+            printf("操作已取消\n");
+            pause_msg(NULL);
+            return;
+        }
+    }
+    
+    /* 从所有三种数据结构删除（按三重键：学号+课程编号+学期） */
+    {
+        int idx = match_indices[(choice > 0) ? choice - 1 : 0];
+        
+        /* 从数组删除特定学期的选课记录 */
+        for (i = idx; i < g_record_count - 1; i++) {
+            g_records[i] = g_records[i + 1];
+        }
+        g_record_count--;
+    }
+    
+    /* 重建三种数据结构，确保数据一致性 */
+    sync_to_all_structures();
+    
+    printf("✅ 删除成功！剩余 %d 条记录\n", g_record_count);
     pause_msg(NULL);
 }
 
@@ -553,15 +606,13 @@ static void menu_update_record(void)
     strcpy(new_rec.student_id, student_id);
     strcpy(new_rec.course_id, course_id);
     
-    /* 更新所有结构 */
-    list_update(&g_list, student_id, course_id, &new_rec);
-    avl_update(&g_avl, student_id, course_id, &new_rec);
-    hash_update(&g_hash, student_id, course_id, &new_rec);
-    
     /* 更新数组 */
     g_records[i] = new_rec;
     
-    printf("修改成功！\n");
+    /* 重建三种数据结构确保一致性 */
+    sync_to_all_structures();
+    
+    printf("✅ 修改成功！\n");
     pause_msg(NULL);
 }
 
@@ -862,32 +913,73 @@ static void menu_delete_expired(void)
 {
     int deleted_list = 0, deleted_avl = 0, deleted_hash = 0;
     int total;
+    int i;
     char input[32];
+    int base_year = 2026, base_month = 9, base_day = 1;
     
     clear_screen();
     printf("========================================\n");
     printf("          批量删除过期记录\n");
     printf("========================================\n");
-    printf("以2026年9月1日为基准，删除3年前（2023年9月1日前）的过期记录\n");
+    printf("当前共 %d 条记录\n\n", g_record_count);
     
-    /* 先统计 */
-    {
-        int i;
-        total = 0;
-        for (i = 0; i < g_record_count; i++) {
-            if (is_expired(&g_records[i], 2026, 9, 1)) {
-                total++;
-            }
+    /* 让用户设定基准日期 */
+    printf("请输入基准日期（默认 2026-9-1，直接回车使用默认）:\n");
+    printf("年: ");
+    fgets(input, sizeof(input), stdin);
+    if (input[0] != '\n' && input[0] != '\0') {
+        int y = atoi(input);
+        if (y >= 2020 && y <= 2099) base_year = y;
+    }
+    printf("月: ");
+    fgets(input, sizeof(input), stdin);
+    if (input[0] != '\n' && input[0] != '\0') {
+        int m = atoi(input);
+        if (m >= 1 && m <= 12) base_month = m;
+    }
+    printf("日: ");
+    fgets(input, sizeof(input), stdin);
+    if (input[0] != '\n' && input[0] != '\0') {
+        int d = atoi(input);
+        if (d >= 1 && d <= 31) base_day = d;
+    }
+    
+    printf("\n基准日期：%04d-%02d-%02d\n", base_year, base_month, base_day);
+    printf("删除条件：选课日期早于 %04d-%02d-%02d（3年前）的过期记录\n\n",
+           base_year - 3, base_month, base_day);
+    
+    /* 先统计过期记录 */
+    total = 0;
+    for (i = 0; i < g_record_count; i++) {
+        if (is_expired(&g_records[i], base_year, base_month, base_day)) {
+            total++;
         }
     }
     
     if (total == 0) {
-        printf("当前没有过期记录需要删除。\n");
+        printf("当前没有过期记录需要删除 ✓\n");
         pause_msg(NULL);
         return;
     }
     
-    printf("即将删除 %d 条过期记录，是否继续? (y/n): ", total);
+    /* 显示过期记录预览 */
+    printf("以下 %d 条记录将被删除（预览前5条）:\n", total);
+    print_record_header();
+    {
+        int shown = 0;
+        for (i = 0; i < g_record_count && shown < 5; i++) {
+            if (is_expired(&g_records[i], base_year, base_month, base_day)) {
+                print_record(&g_records[i]);
+                shown++;
+            }
+        }
+        if (total > 5) {
+            printf("  ... 及其他 %d 条过期记录\n", total - 5);
+        }
+    }
+    print_record_footer();
+    
+    printf("\n即将删除 %d 条过期记录，是否继续? (y/n): ", total);
     fgets(input, sizeof(input), stdin);
     
     if (input[0] != 'y' && input[0] != 'Y') {
@@ -897,27 +989,36 @@ static void menu_delete_expired(void)
     }
     
     /* 从所有数据结构中删除 */
-    list_delete_expired(&g_list, 2026, 9, 1, &deleted_list);
-    avl_delete_expired(&g_avl, 2026, 9, 1, &deleted_avl);
-    hash_delete_expired(&g_hash, 2026, 9, 1, &deleted_hash);
+    list_delete_expired(&g_list, base_year, base_month, base_day, &deleted_list);
+    avl_delete_expired(&g_avl, base_year, base_month, base_day, &deleted_avl);
+    hash_delete_expired(&g_hash, base_year, base_month, base_day, &deleted_hash);
     
     /* 从数组中删除 */
     {
         int i, j;
         j = 0;
         for (i = 0; i < g_record_count; i++) {
-            if (!is_expired(&g_records[i], 2026, 9, 1)) {
+            if (!is_expired(&g_records[i], base_year, base_month, base_day)) {
                 g_records[j++] = g_records[i];
             }
         }
         g_record_count = j;
     }
     
-    printf("删除完成！\n");
-    printf("链表删除: %d 条\n", deleted_list);
-    printf("AVL树删除: %d 条\n", deleted_avl);
-    printf("哈希表删除: %d 条\n", deleted_hash);
-    printf("当前共 %d 条记录\n", g_record_count);
+    printf("\n✅ 批量删除完成！\n");
+    printf("  链表删除: %d 条\n", deleted_list);
+    printf("  AVL树删除: %d 条\n", deleted_avl);
+    printf("  哈希表删除: %d 条\n", deleted_hash);
+    printf("  数组剩余: %d 条\n", g_record_count);
+    
+    /* 一致性检查 */
+    if (deleted_list != total || deleted_avl != total || deleted_hash != total) {
+        printf("  ⚠ 注意：各结构删除数量不一致（链表:%d AVL:%d 哈希:%d 预期:%d）\n",
+               deleted_list, deleted_avl, deleted_hash, total);
+        printf("  数组已同步清理，建议保存后重新加载数据\n");
+    } else {
+        printf("  ✓ 所有数据结构同步删除，数据一致\n");
+    }
     
     pause_msg(NULL);
 }

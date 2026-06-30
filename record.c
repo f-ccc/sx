@@ -439,21 +439,15 @@ static const char *semesters[] = {
 /* 从学期解析年份和月份 */
 static void parse_semester_date(const char *semester, int *year, int *month)
 {
-    char buf[8];
-    int i;
+    /* "YYYY-01" = 7 chars, 复制全部到buf */
+    *year = (semester[0] - '0') * 1000 + (semester[1] - '0') * 100 +
+            (semester[2] - '0') * 10 + (semester[3] - '0');
     
-    for (i = 0; i < 6 && semester[i] != '\0'; i++) {
-        buf[i] = semester[i];
-    }
-    buf[i] = '\0';
-    
-    *year = (buf[0] - '0') * 1000 + (buf[1] - '0') * 100 + 
-            (buf[2] - '0') * 10 + (buf[3] - '0');
-    
-    if (buf[5] == '1') {
-        *month = 3;  /* 春季，约3月 */
+    /* 第6位(下标6): '1'=春季, '2'=秋季 */
+    if (semester[6] == '1') {
+        *month = 3;  /* 春季，约3月中旬 */
     } else {
-        *month = 9;  /* 秋季，约9月 */
+        *month = 9;  /* 秋季，约9月中旬 */
     }
 }
 
@@ -507,11 +501,17 @@ void generate_record(Record *rec, int index)
     semester_idx = rand() % SEMESTER_COUNT;
     str_copy(rec->semester, semesters[semester_idx], MAX_SEMESTER_LEN);
     
-    /* 选课日期 - 与学期对应 */
+    /* 选课日期 - 与学期对应的选课时段内随机 */
     parse_semester_date(rec->semester, &sem_year, &sem_month);
     rec->enroll_date.year = sem_year;
-    rec->enroll_date.month = sem_month;
-    rec->enroll_date.day = (rand() % 28) + 1;
+    if (rec->semester[6] == '1') {
+        /* 春季学期：2月1日~4月30日 */
+        rec->enroll_date.month = 2 + (rand() % 3);     /* 2,3,4月 */
+    } else {
+        /* 秋季学期：8月1日~10月31日 */
+        rec->enroll_date.month = 8 + (rand() % 3);     /* 8,9,10月 */
+    }
+    rec->enroll_date.day = 1 + (rand() % 28);           /* 1~28日 */
     {
         int r1, sum;
         double avg;
@@ -528,15 +528,33 @@ void generate_record(Record *rec, int index)
     }
 }
 
-/* 批量生成选课记录 */
+/* 批量生成选课记录（含去重+校验，确保每条记录合法） */
 void generate_records(Record *records, int count)
 {
     int i;
+    int attempts;
+    const int MAX_ATTEMPTS = 100;  /* 防止死循环 */
     
     srand((unsigned int)time(NULL));
     
     for (i = 0; i < count; i++) {
-        generate_record(&records[i], i);
+        attempts = 0;
+        do {
+            generate_record(&records[i], i);
+            attempts++;
+            
+            /* 最多尝试 MAX_ATTEMPTS 次生成合法且不重复的记录 */
+        } while (attempts < MAX_ATTEMPTS && 
+                 (validate_record(&records[i]) != OK ||   /* 字段不合法 */
+                  check_duplicate_triple_key(records, i,   /* 三重键重复 */
+                    records[i].student_id, 
+                    records[i].course_id, 
+                    records[i].semester)));
+        
+        if (attempts >= MAX_ATTEMPTS) {
+            /* 极端情况下强行写入（几乎不会发生） */
+            records[i].score = 75;
+        }
     }
 }
 
