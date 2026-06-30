@@ -208,6 +208,9 @@ static void menu_generate_data(void)
     }
     g_record_capacity = count;
     
+    /* 强制重新播种，确保每次生成数据不同 */
+    srand((unsigned int)(time(NULL) ^ (rand() << 16) ^ g_record_count));
+    
     printf("正在生成 %d 条选课记录...\n", count);
     generate_records(g_records, count);
     g_record_count = count;
@@ -287,7 +290,7 @@ static void menu_insert_record(void)
                 printf("请输入学分: ");
                 fgets(input, sizeof(input), stdin);
                 rec.credit = (float)atof(input);
-                if (rec.credit >= 0.5f && rec.credit <= 20.0f) break;
+				if( rec.credit >= 0.5f - 0.01f && rec.credit <= 20.0f + 0.01f )break;
                 printf("  ⚠ 学分无效（应为0.5~20.0之间的数）\n");
             }
         }
