@@ -588,40 +588,7 @@ void generate_records(Record *records, int count)
     }
 }
 
-/* 成绩转等级 */
-const char *score_to_grade(int score)
-{
-    if (score < 0)  return "未出";
-    if (score >= 90) return "优秀";
-    if (score >= 80) return "良好";
-    if (score >= 70) return "中等";
-    if (score >= 60) return "及格";
-    return "不及格";
-}
-
-/* 打印带等级的表头 */
-void print_record_header_with_grade(void)
-{
-    printf("+--------------+----------+----------+----------+------------------+-----+---------+------------+-----+--------+\n");
-    printf("| 学号         | 姓名    | 学院    | 课程编号 | 课程名称         |学分 | 学期   | 选课日期   |成绩 | 等级   |\n");
-    printf("+--------------+----------+----------+----------+------------------+-----+---------+------------+-----+--------+\n");
-}
-
-/* 打印带等级的表尾 */
-void print_record_footer_with_grade(void)
-{
-    printf("+--------------+----------+----------+----------+------------------+-----+---------+------------+-----+--------+\n");
-}
-
-/* 打印一条带等级的记录 */
-void print_record_with_grade(const Record *rec)
-{
-    printf("| %-12s | %-8s | %-8s | %-8s | %-16s | %5.1f | %-7s | %04d-%02d-%02d | %3d | %-6s |\n",
-           rec->student_id, rec->name, rec->college, rec->course_id, rec->course_name,
-           rec->credit, rec->semester,
-           rec->enroll_date.year, rec->enroll_date.month, rec->enroll_date.day,
-           rec->score, score_to_grade(rec->score));
-}
+/* 打印一条记录 */
 void print_record(const Record *rec)
 {
     printf("| %-12s | %-8s | %-8s | %-8s | %-16s | %5.1f | %-7s | %04d-%02d-%02d | %3d |\n",

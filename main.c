@@ -314,23 +314,14 @@ static void menu_insert_record(void)
         printf("  ⚠ %s\n", get_validate_error_msg(ret));
     }
     
-    /* ===== 学期：自动设为当前学期 ===== */
-    {
-        time_t now = time(NULL);
-        struct tm *tm_info = localtime(&now);
-        if (tm_info != NULL) {
-            int cur_year = tm_info->tm_year + 1900;
-            int cur_mon = tm_info->tm_mon + 1;
-            char sem_buf[8];
-            if (cur_mon >= 1 && cur_mon <= 6)
-                sprintf(sem_buf, "%04d-01", cur_year);
-            else
-                sprintf(sem_buf, "%04d-02", cur_year);
-            strcpy(rec.semester, sem_buf);
-            printf("  当前学期: %s (自动)\n", rec.semester);
-        } else {
-            strcpy(rec.semester, "2024-01");
-        }
+    /* ===== 输入学期 ===== */
+    while (1) {
+        printf("请输入选课学期（格式 YYYY-01 春季 或 YYYY-02 秋季）: ");
+        fgets(rec.semester, MAX_SEMESTER_LEN, stdin);
+        rec.semester[strcspn(rec.semester, "\n")] = '\0';
+        ret = validate_semester(rec.semester);
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     /* 去重检查：学号+课程编号+学期 三重键 */
@@ -339,31 +330,34 @@ static void menu_insert_record(void)
     if (duplicate) {
         printf("  ❌ 错误：学号 %s 本学期（%s）已选修课程 %s，不可重复提交！\n",
                rec.student_id, rec.semester, rec.course_id);
-        printf("  （如需重修请等下学期再选）\n");
+        printf("  （如需重修请选择其他学期）\n");
         pause_msg(NULL);
         return;
     }
     
-    /* ===== 选课日期：自动设为当前日期 ===== */
-    {
-        time_t now = time(NULL);
-        struct tm *tm_info = localtime(&now);
-        if (tm_info != NULL) {
-            rec.enroll_date.year = tm_info->tm_year + 1900;
-            rec.enroll_date.month = tm_info->tm_mon + 1;
-            rec.enroll_date.day = tm_info->tm_mday;
-        } else {
-            rec.enroll_date.year = 2024;
-            rec.enroll_date.month = 9;
-            rec.enroll_date.day = 1;
-        }
-        printf("  选课日期: %04d-%02d-%02d (系统自动记录)\n",
-               rec.enroll_date.year, rec.enroll_date.month, rec.enroll_date.day);
+    /* ===== 输入选课日期 ===== */
+    while (1) {
+        printf("请输入选课日期（年 月 日，空格分隔）: ");
+        fgets(input, sizeof(input), stdin);
+        sscanf(input, "%d %d %d", &rec.enroll_date.year, 
+               &rec.enroll_date.month, &rec.enroll_date.day);
+        ret = validate_enroll_date(&rec.enroll_date, rec.semester);
+        if (ret == OK) break;
+        printf("  ⚠ %s\n", get_validate_error_msg(ret));
+        printf("   提示：本学期选课日期范围应为");
+        if (rec.semester[6] == '1') printf(" 2月1日~4月30日\n");
+        else                        printf(" 8月1日~10月31日\n");
     }
     
-    /* ===== 成绩：选课时不录入，设为-1 ===== */
-    rec.score = -1;
-    printf("  成绩: 未出（选课时不录入，教师后续录入）\n");
+    /* ===== 输入成绩 ===== */
+    while (1) {
+        printf("请输入成绩（0-100）: ");
+        fgets(input, sizeof(input), stdin);
+        rec.score = atoi(input);
+        ret = validate_score(rec.score);
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
     /* 插入到数组 */
     g_records[g_record_count] = rec;
@@ -512,15 +506,15 @@ static void menu_find_record(void)
             course_id[strcspn(course_id, "\n")] = '\0';
             
             printf("\n查找结果:\n");
-            print_record_header_with_grade();
+            print_record_header();
             for (i = 0; i < g_record_count; i++) {
                 if (strcmp(g_records[i].student_id, student_id) == 0 &&
                     strcmp(g_records[i].course_id, course_id) == 0) {
-                    print_record_with_grade(&g_records[i]);
+                    print_record(&g_records[i]);
                     found++;
                 }
             }
-            print_record_footer_with_grade();
+            print_record_footer();
             break;
             
         case 2:
@@ -529,14 +523,14 @@ static void menu_find_record(void)
             student_id[strcspn(student_id, "\n")] = '\0';
             
             printf("\n学生 %s 的所有选课记录:\n", student_id);
-            print_record_header_with_grade();
+            print_record_header();
             for (i = 0; i < g_record_count; i++) {
                 if (strcmp(g_records[i].student_id, student_id) == 0) {
-                    print_record_with_grade(&g_records[i]);
+                    print_record(&g_records[i]);
                     found++;
                 }
             }
-            print_record_footer_with_grade();
+            print_record_footer();
             break;
             
         case 3:
@@ -545,14 +539,14 @@ static void menu_find_record(void)
             course_id[strcspn(course_id, "\n")] = '\0';
             
             printf("\n课程 %s 的所有选课学生:\n", course_id);
-            print_record_header_with_grade();
+            print_record_header();
             for (i = 0; i < g_record_count; i++) {
                 if (strcmp(g_records[i].course_id, course_id) == 0) {
-                    print_record_with_grade(&g_records[i]);
+                    print_record(&g_records[i]);
                     found++;
                 }
             }
-            print_record_footer_with_grade();
+            print_record_footer();
             break;
     }
     
@@ -738,13 +732,13 @@ static void menu_list_records(void)
         printf("      第 %d/%d 页\n", page + 1, total_pages);
         printf("========================================\n");
         
-        print_record_header_with_grade();
+        print_record_header();
         
         for (i = page * page_size; i < g_record_count && i < (page + 1) * page_size; i++) {
-            print_record_with_grade(&g_records[i]);
+            print_record(&g_records[i]);
         }
         
-        print_record_footer_with_grade();
+        print_record_footer();
         
         printf("\n操作: n-下一页 p-上一页 g-跳转 q-返回: ");
         fgets(input, sizeof(input), stdin);
@@ -969,11 +963,11 @@ static void menu_filter_sort(void)
                 
                 printf("\n筛选结果 (第 %d/%d 页，共 %d 条):\n", 
                        page + 1, total_pages, result.count);
-                print_record_header_with_grade();
+                print_record_header();
                 for (i = start; i < end; i++) {
-                    print_record_with_grade(&result.records[i]);
+                    print_record(&result.records[i]);
                 }
-                print_record_footer_with_grade();
+                print_record_footer();
                 
                 if (total_pages <= 1) break;
                 
