@@ -304,7 +304,34 @@ int validate_record(const Record *rec)
     return OK;
 }
 
-/* 在数组中查重 */
+/*
+ * 在数组中检查是否存在三重键（学号+课程编号+学期）完全一致的重复记录
+ * 用于区分：同一学生同一课程"同学期"=重复拦截，"不同学期"=重修放行
+ * 返回 1=已存在（重复）, 0=不存在（正常/重修）
+ */
+int check_duplicate_triple_key(const Record *records, int count,
+                                const char *student_id,
+                                const char *course_id,
+                                const char *semester)
+{
+    int i;
+    
+    if (records == NULL || student_id == NULL || course_id == NULL || semester == NULL) {
+        return 0;
+    }
+    
+    for (i = 0; i < count; i++) {
+        if (strcmp(records[i].student_id, student_id) == 0 &&
+            strcmp(records[i].course_id, course_id) == 0 &&
+            strcmp(records[i].semester, semester) == 0) {
+            return 1;  /* 同一学期重复选课 */
+        }
+    }
+    
+    return 0;  /* 不重复（或是不同学期的重修） */
+}
+
+/* 在数组中检查是否存在相同键（学号+课程编号）的记录 */
 int check_duplicate_in_array(const Record *records, int count,
                               const char *student_id, const char *course_id)
 {
@@ -333,7 +360,7 @@ const char *get_validate_error_msg(int err_code)
         case INVALID_SEMESTER: return "学期格式错误：必须为YYYY-01或YYYY-02";
         case INVALID_SCORE:    return "成绩错误：必须在0-100之间";
         case EMPTY_FIELD:      return "字段不能为空或纯空白";
-        case DUPLICATE:        return "重复记录：该学生已选此课程";
+        case DUPLICATE:        return "该课程本学期已完成选课，不可重复提交";
         default:               return "未知错误";
     }
 }

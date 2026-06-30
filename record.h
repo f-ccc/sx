@@ -120,6 +120,16 @@ int validate_not_empty(const char *str, const char *field_name);
 int validate_record(const Record *rec);
 
 /*
+ * 在数组中检查是否存在三重键（学号+课程编号+学期）完全一致的重复记录
+ * 同学期=重复拦截，不同学期=重修放行
+ * 返回 1=已存在（重复）, 0=不存在
+ */
+int check_duplicate_triple_key(const Record *records, int count,
+                                const char *student_id,
+                                const char *course_id,
+                                const char *semester);
+
+/*
  * 在数组中检查是否存在相同键（学号+课程编号）的记录
  * 返回 1=已存在, 0=不存在
  */

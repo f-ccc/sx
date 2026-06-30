@@ -106,12 +106,13 @@ static int load_data(void)
             continue;
         }
         
-        /* 去重检查（前面的有效记录中是否已有相同键） */
+        /* 去重检查（前面有效记录中是否已有相同三重键：学号+课程编号+学期） */
         for (j = 0; j < i; j++) {
             if (valid_flags[j] &&
                 strcmp(g_records[j].student_id, g_records[i].student_id) == 0 &&
-                strcmp(g_records[j].course_id, g_records[i].course_id) == 0) {
-                printf("  ⚠ 第%d条与第%d条重复，跳过\n", i + 1, j + 1);
+                strcmp(g_records[j].course_id, g_records[i].course_id) == 0 &&
+                strcmp(g_records[j].semester, g_records[i].semester) == 0) {
+                printf("  ⚠ 第%d条与第%d条（同学期）重复，跳过\n", i + 1, j + 1);
                 valid_flags[i] = 0;
                 dup_skipped++;
                 break;
@@ -274,13 +275,13 @@ static void menu_insert_record(void)
         printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
-    /* 去重检查：学号+课程编号是否已存在 */
-    duplicate = check_duplicate_in_array(g_records, g_record_count,
-                                          rec.student_id, rec.course_id);
+    /* 去重检查：学号+课程编号+学期 三重键（同一学期重复选课拦截） */
+    duplicate = check_duplicate_triple_key(g_records, g_record_count,
+                                          rec.student_id, rec.course_id, rec.semester);
     if (duplicate) {
-        printf("  ❌ 错误：学号 %s 已选修课程 %s，不可重复选课！\n",
-               rec.student_id, rec.course_id);
-        printf("  如需修改成绩请使用\"修改记录\"功能\n");
+        printf("  ❌ 错误：学号 %s 本学期（%s）已选修课程 %s，不可重复提交！\n",
+               rec.student_id, rec.semester, rec.course_id);
+        printf("  （如需重修请选择其他学期）\n");
         pause_msg(NULL);
         return;
     }
