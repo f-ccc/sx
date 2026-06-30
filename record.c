@@ -535,8 +535,6 @@ void generate_records(Record *records, int count)
     int attempts;
     const int MAX_ATTEMPTS = 100;  /* ∑¿÷πÀ¿—≠ª∑ */
     
-    srand((unsigned int)time(NULL));
-    
     for (i = 0; i < count; i++) {
         attempts = 0;
         do {

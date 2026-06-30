@@ -1311,6 +1311,9 @@ int main(void)
 {
     char input[32];
     
+    /* 初始化随机数种子（只在程序启动时调用一次） */
+    srand((unsigned int)time(NULL));
+    
     /* 初始化 */
     g_records = NULL;
     g_record_count = 0;
