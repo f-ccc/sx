@@ -69,10 +69,64 @@ void print_record_footer(void);
 #define FILTER_COLLEGE      3
 
 /* 操作结果 */
-#define OK      0
-#define ERR    -1
-#define NOT_FOUND -2
-#define FULL   -3
-#define DUPLICATE -4
+#define OK          0
+#define ERR        -1
+#define NOT_FOUND  -2
+#define FULL       -3
+#define DUPLICATE  -4
+#define INVALID_ID -5
+#define INVALID_DATE -6
+#define INVALID_SEMESTER -7
+#define INVALID_SCORE  -8
+#define EMPTY_FIELD   -9
+
+/* ========== 字段校验函数 ========== */
+
+/*
+ * 校验学号格式：必须为12位纯数字
+ * 返回 OK 或 INVALID_ID
+ */
+int validate_student_id(const char *student_id);
+
+/*
+ * 校验学期格式：必须为 "YYYY-01" 或 "YYYY-02"
+ * 返回 OK 或 INVALID_SEMESTER
+ */
+int validate_semester(const char *semester);
+
+/*
+ * 校验选课日期：合法存在的日期，不晚于当前日期，
+ * 且与学期对应的开学月份匹配（春季约3月，秋季约9月）
+ * 返回 OK 或 INVALID_DATE
+ */
+int validate_enroll_date(const Date *date, const char *semester);
+
+/*
+ * 校验成绩：0-100 之间的整数
+ * 返回 OK 或 INVALID_SCORE
+ */
+int validate_score(int score);
+
+/*
+ * 校验字符串是否为空或纯空白
+ * 返回 OK 或 EMPTY_FIELD
+ */
+int validate_not_empty(const char *str, const char *field_name);
+
+/*
+ * 全面校验一条记录的所有字段
+ * 返回 OK 或具体错误码
+ */
+int validate_record(const Record *rec);
+
+/*
+ * 在数组中检查是否存在相同键（学号+课程编号）的记录
+ * 返回 1=已存在, 0=不存在
+ */
+int check_duplicate_in_array(const Record *records, int count,
+                              const char *student_id, const char *course_id);
+
+/* 校验错误信息表 */
+const char *get_validate_error_msg(int err_code);
 
 #endif /* RECORD_H */

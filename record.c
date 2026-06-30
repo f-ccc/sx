@@ -63,6 +63,281 @@ int record_match_key(const Record *rec, const char *student_id, const char *cour
             strcmp(rec->course_id, course_id) == 0);
 }
 
+/* ========== 字段合法性校验 ========== */
+
+/* 学号校验：12位纯数字 */
+int validate_student_id(const char *student_id)
+{
+    int len;
+    int i;
+    
+    if (student_id == NULL) {
+        return INVALID_ID;
+    }
+    
+    len = strlen(student_id);
+    if (len != 12) {
+        return INVALID_ID;
+    }
+    
+    for (i = 0; i < len; i++) {
+        if (student_id[i] < '0' || student_id[i] > '9') {
+            return INVALID_ID;
+        }
+    }
+    
+    return OK;
+}
+
+/* 学期校验：格式 "YYYY-01" 或 "YYYY-02" */
+int validate_semester(const char *semester)
+{
+    int len;
+    int year;
+    
+    if (semester == NULL) {
+        return INVALID_SEMESTER;
+    }
+    
+    len = strlen(semester);
+    if (len != 7) {
+        return INVALID_SEMESTER;
+    }
+    
+    /* 前4位必须是数字（年份） */
+    if (semester[0] < '0' || semester[0] > '9') return INVALID_SEMESTER;
+    if (semester[1] < '0' || semester[1] > '9') return INVALID_SEMESTER;
+    if (semester[2] < '0' || semester[2] > '9') return INVALID_SEMESTER;
+    if (semester[3] < '0' || semester[3] > '9') return INVALID_SEMESTER;
+    
+    /* 第5位必须是 '-' */
+    if (semester[4] != '-') return INVALID_SEMESTER;
+    
+    /* 第6-7位必须是 "01" 或 "02" */
+    if (semester[5] != '0') return INVALID_SEMESTER;
+    if (semester[6] != '1' && semester[6] != '2') return INVALID_SEMESTER;
+    
+    /* 年份范围：2000-2099 */
+    year = (semester[0] - '0') * 1000 + (semester[1] - '0') * 100 +
+           (semester[2] - '0') * 10 + (semester[3] - '0');
+    if (year < 2000 || year > 2099) {
+        return INVALID_SEMESTER;
+    }
+    
+    return OK;
+}
+
+/* 判断闰年 */
+static int is_leap_year(int year)
+{
+    return (year % 400 == 0) || (year % 4 == 0 && year % 100 != 0);
+}
+
+/* 获取某月的最大天数 */
+static int days_in_month(int year, int month)
+{
+    static const int days[13] = {0, 31, 28, 31, 30, 31, 30,
+                                   31, 31, 30, 31, 30, 31};
+    
+    if (month < 1 || month > 12) {
+        return 0;
+    }
+    
+    if (month == 2 && is_leap_year(year)) {
+        return 29;
+    }
+    
+    return days[month];
+}
+
+/* 选课日期校验：合法日期、与学期对应、不晚于当前 */
+int validate_enroll_date(const Date *date, const char *semester)
+{
+    int sem_year;
+    int earliest_year, earliest_month, earliest_day;
+    int latest_year, latest_month, latest_day;
+    Date earliest, latest, now_estimate;
+    time_t raw_time;
+    struct tm *time_info;
+    
+    if (date == NULL) {
+        return INVALID_DATE;
+    }
+    
+    /* 1. 基本日期合法性：年月日范围 */
+    if (date->year < 2000 || date->year > 2099) {
+        return INVALID_DATE;
+    }
+    if (date->month < 1 || date->month > 12) {
+        return INVALID_DATE;
+    }
+    if (date->day < 1 || date->day > days_in_month(date->year, date->month)) {
+        return INVALID_DATE;
+    }
+    
+    /* 2. 日期与学期对应：从学期解析年份和月份 */
+    if (semester != NULL && strlen(semester) >= 7) {
+        sem_year = (semester[0] - '0') * 1000 + (semester[1] - '0') * 100 +
+                   (semester[2] - '0') * 10 + (semester[3] - '0');
+        
+        /* 春季学期(01)：开学约2月，选课截止约3月 */
+        /* 秋季学期(02)：开学约8月，选课截止约10月 */
+        if (semester[6] == '1') {  /* 春季 */
+            earliest_month = 2;
+            earliest_day = 1;
+            latest_month = 4;
+            latest_day = 30;
+        } else {                    /* 秋季 */
+            earliest_month = 8;
+            earliest_day = 1;
+            latest_month = 10;
+            latest_day = 31;
+        }
+        earliest_year = sem_year;
+        latest_year = sem_year;
+        
+        earliest.year = earliest_year;
+        earliest.month = earliest_month;
+        earliest.day = earliest_day;
+        latest.year = latest_year;
+        latest.month = latest_month;
+        latest.day = latest_day;
+        
+        /* 日期不能早于开学时间 */
+        if (date_compare(date, &earliest) == CMP_LESS) {
+            return INVALID_DATE;
+        }
+        /* 日期不能晚于选课截止时间 */
+        if (date_compare(date, &latest) == CMP_GREATER) {
+            return INVALID_DATE;
+        }
+    }
+    
+    /* 3. 禁止未来日期（以编译时间为准的当前年判断） */
+    /* 用 time 获取当前年份作为粗略检查 */
+    raw_time = time(NULL);
+    time_info = localtime(&raw_time);
+    if (time_info != NULL) {
+        int cur_year = time_info->tm_year + 1900;
+        int cur_month = time_info->tm_mon + 1;
+        int cur_day = time_info->tm_mday;
+        
+        now_estimate.year = cur_year;
+        now_estimate.month = cur_month;
+        now_estimate.day = cur_day;
+        
+        if (date_compare(date, &now_estimate) == CMP_GREATER) {
+            return INVALID_DATE;
+        }
+    }
+    
+    return OK;
+}
+
+/* 成绩校验：0-100 */
+int validate_score(int score)
+{
+    if (score < 0 || score > 100) {
+        return INVALID_SCORE;
+    }
+    return OK;
+}
+
+/* 非空校验 */
+int validate_not_empty(const char *str, const char *field_name)
+{
+    int i;
+    
+    (void)field_name;  /* 保留参数以备后续扩展 */
+    
+    if (str == NULL || str[0] == '\0') {
+        return EMPTY_FIELD;
+    }
+    
+    /* 检查是否纯空白 */
+    for (i = 0; str[i] != '\0'; i++) {
+        if (str[i] != ' ' && str[i] != '\t') {
+            return OK;  /* 至少有一个非空白字符 */
+        }
+    }
+    
+    return EMPTY_FIELD;  /* 全是空白 */
+}
+
+/* 全面校验一条记录 */
+int validate_record(const Record *rec)
+{
+    int ret;
+    
+    if (rec == NULL) return ERR;
+    
+    ret = validate_not_empty(rec->student_id, "学号");
+    if (ret != OK) return ret;
+    ret = validate_student_id(rec->student_id);
+    if (ret != OK) return ret;
+    
+    ret = validate_not_empty(rec->name, "姓名");
+    if (ret != OK) return ret;
+    
+    ret = validate_not_empty(rec->college, "学院");
+    if (ret != OK) return ret;
+    
+    ret = validate_not_empty(rec->course_id, "课程编号");
+    if (ret != OK) return ret;
+    
+    ret = validate_not_empty(rec->course_name, "课程名称");
+    if (ret != OK) return ret;
+    
+    if (rec->credit <= 0.0f || rec->credit > 20.0f) {
+        return INVALID_SCORE;  /* 复用INVALID_SCORE表示学分不合理 */
+    }
+    
+    ret = validate_semester(rec->semester);
+    if (ret != OK) return ret;
+    
+    ret = validate_enroll_date(&rec->enroll_date, rec->semester);
+    if (ret != OK) return ret;
+    
+    ret = validate_score(rec->score);
+    if (ret != OK) return ret;
+    
+    return OK;
+}
+
+/* 在数组中查重 */
+int check_duplicate_in_array(const Record *records, int count,
+                              const char *student_id, const char *course_id)
+{
+    int i;
+    
+    if (records == NULL || student_id == NULL || course_id == NULL) {
+        return 0;
+    }
+    
+    for (i = 0; i < count; i++) {
+        if (strcmp(records[i].student_id, student_id) == 0 &&
+            strcmp(records[i].course_id, course_id) == 0) {
+            return 1;  /* 重复 */
+        }
+    }
+    
+    return 0;  /* 不重复 */
+}
+
+/* 错误码 → 中文提示 */
+const char *get_validate_error_msg(int err_code)
+{
+    switch (err_code) {
+        case INVALID_ID:       return "学号格式错误：必须为12位纯数字";
+        case INVALID_DATE:     return "选课日期错误：非法日期或与学期不匹配";
+        case INVALID_SEMESTER: return "学期格式错误：必须为YYYY-01或YYYY-02";
+        case INVALID_SCORE:    return "成绩错误：必须在0-100之间";
+        case EMPTY_FIELD:      return "字段不能为空或纯空白";
+        case DUPLICATE:        return "重复记录：该学生已选此课程";
+        default:               return "未知错误";
+    }
+}
+
 /* ========== 数据生成 ========== */
 
 /* 姓氏库 */

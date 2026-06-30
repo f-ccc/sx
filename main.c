@@ -65,20 +65,76 @@ static void pause_msg(const char *msg)
 
 /* ========== 数据加载与保存 ========== */
 
-/* 从文件加载数据 */
+/* 从文件加载数据（含校验+去重） */
 static int load_data(void)
 {
     int ret;
+    int raw_count = 0;
+    int valid_count = 0;
+    int i, j;
+    int *valid_flags = NULL;
+    int dup_skipped = 0;
+    int invalid_skipped = 0;
     
-    ret = csv_load_records(g_data_file, g_records, &g_record_count, g_record_capacity);
+    ret = csv_load_records(g_data_file, g_records, &raw_count, g_record_capacity);
     if (ret != OK) {
         printf("错误：加载数据文件 %s 失败\n", g_data_file);
         return ERR;
     }
     
-    if (g_record_count > 0) {
-        printf("成功加载 %d 条记录\n", g_record_count);
+    if (raw_count == 0) {
+        g_record_count = 0;
+        return OK;
     }
+    
+    /* 逐条校验并去重 */
+    valid_flags = (int *)malloc(sizeof(int) * raw_count);
+    if (valid_flags == NULL) {
+        printf("错误：内存不足\n");
+        return ERR;
+    }
+    
+    for (i = 0; i < raw_count; i++) {
+        valid_flags[i] = 1;  /* 默认有效 */
+        
+        /* 字段校验 */
+        ret = validate_record(&g_records[i]);
+        if (ret != OK) {
+            printf("  ⚠ 第%d条记录校验失败：%s\n", i + 1, get_validate_error_msg(ret));
+            valid_flags[i] = 0;
+            invalid_skipped++;
+            continue;
+        }
+        
+        /* 去重检查（前面的有效记录中是否已有相同键） */
+        for (j = 0; j < i; j++) {
+            if (valid_flags[j] &&
+                strcmp(g_records[j].student_id, g_records[i].student_id) == 0 &&
+                strcmp(g_records[j].course_id, g_records[i].course_id) == 0) {
+                printf("  ⚠ 第%d条与第%d条重复，跳过\n", i + 1, j + 1);
+                valid_flags[i] = 0;
+                dup_skipped++;
+                break;
+            }
+        }
+    }
+    
+    /* 压缩数组：只保留有效记录 */
+    for (i = 0; i < raw_count; i++) {
+        if (valid_flags[i]) {
+            g_records[valid_count++] = g_records[i];
+        }
+    }
+    
+    g_record_count = valid_count;
+    
+    free(valid_flags);
+    
+    printf("成功加载 %d 条记录", g_record_count);
+    if (invalid_skipped > 0) printf("（跳过 %d 条非法记录）", invalid_skipped);
+    if (dup_skipped > 0)     printf("（去除 %d 条重复记录）", dup_skipped);
+    printf("\n");
+    
     return OK;
 }
 
@@ -175,6 +231,8 @@ static void menu_insert_record(void)
     char input[32];
     Record *new_records;
     int new_capacity;
+    int ret;
+    int duplicate;
     
     clear_screen();
     printf("========================================\n");
@@ -192,58 +250,118 @@ static void menu_insert_record(void)
         }
         g_records = new_records;
         g_record_capacity = new_capacity;
-        printf("（自动扩容至 %d 条容量）\n", new_capacity);
     }
     
-    printf("请输入学号（12位）: ");
-    fgets(rec.student_id, MAX_STUDENT_ID_LEN, stdin);
-    /* 去掉换行符 */
-    rec.student_id[strcspn(rec.student_id, "\n")] = '\0';
+    /* 输入学号并立即校验 */
+    while (1) {
+        printf("请输入学号（12位数字）: ");
+        fgets(rec.student_id, MAX_STUDENT_ID_LEN, stdin);
+        rec.student_id[strcspn(rec.student_id, "\n")] = '\0';
+        
+        ret = validate_student_id(rec.student_id);
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
-    printf("请输入姓名: ");
-    fgets(rec.name, MAX_NAME_LEN, stdin);
-    rec.name[strcspn(rec.name, "\n")] = '\0';
+    /* 输入课程编号并立即校验非空 */
+    while (1) {
+        printf("请输入课程编号（8位）: ");
+        fgets(rec.course_id, MAX_COURSE_ID_LEN, stdin);
+        rec.course_id[strcspn(rec.course_id, "\n")] = '\0';
+        
+        ret = validate_not_empty(rec.course_id, "课程编号");
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
-    printf("请输入学院: ");
-    fgets(rec.college, MAX_COLLEGE_LEN, stdin);
-    rec.college[strcspn(rec.college, "\n")] = '\0';
+    /* 去重检查：学号+课程编号是否已存在 */
+    duplicate = check_duplicate_in_array(g_records, g_record_count,
+                                          rec.student_id, rec.course_id);
+    if (duplicate) {
+        printf("  ❌ 错误：学号 %s 已选修课程 %s，不可重复选课！\n",
+               rec.student_id, rec.course_id);
+        printf("  如需修改成绩请使用\"修改记录\"功能\n");
+        pause_msg(NULL);
+        return;
+    }
     
-    printf("请输入课程编号（8位）: ");
-    fgets(rec.course_id, MAX_COURSE_ID_LEN, stdin);
-    rec.course_id[strcspn(rec.course_id, "\n")] = '\0';
+    /* 输入姓名 */
+    while (1) {
+        printf("请输入姓名: ");
+        fgets(rec.name, MAX_NAME_LEN, stdin);
+        rec.name[strcspn(rec.name, "\n")] = '\0';
+        
+        ret = validate_not_empty(rec.name, "姓名");
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
-    printf("请输入课程名称: ");
-    fgets(rec.course_name, MAX_COURSE_NAME_LEN, stdin);
-    rec.course_name[strcspn(rec.course_name, "\n")] = '\0';
+    /* 输入学院 */
+    while (1) {
+        printf("请输入学院: ");
+        fgets(rec.college, MAX_COLLEGE_LEN, stdin);
+        rec.college[strcspn(rec.college, "\n")] = '\0';
+        
+        ret = validate_not_empty(rec.college, "学院");
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
-    printf("请输入学分: ");
-    fgets(input, sizeof(input), stdin);
-    rec.credit = (float)atof(input);
+    /* 输入课程名称 */
+    while (1) {
+        printf("请输入课程名称: ");
+        fgets(rec.course_name, MAX_COURSE_NAME_LEN, stdin);
+        rec.course_name[strcspn(rec.course_name, "\n")] = '\0';
+        
+        ret = validate_not_empty(rec.course_name, "课程名称");
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
-    printf("请输入选课学期（格式YYYY-01或YYYY-02）: ");
-    fgets(rec.semester, MAX_SEMESTER_LEN, stdin);
-    rec.semester[strcspn(rec.semester, "\n")] = '\0';
+    /* 输入学分 */
+    while (1) {
+        printf("请输入学分: ");
+        fgets(input, sizeof(input), stdin);
+        rec.credit = (float)atof(input);
+        if (rec.credit > 0.0f && rec.credit <= 20.0f) break;
+        printf("  ⚠ 学分无效（应为0.5~20.0之间的数），请重新输入\n");
+    }
     
-    printf("请输入选课日期（年 月 日，空格分隔）: ");
-    fgets(input, sizeof(input), stdin);
-    sscanf(input, "%d %d %d", &rec.enroll_date.year, 
-           &rec.enroll_date.month, &rec.enroll_date.day);
+    /* 输入学期 */
+    while (1) {
+        printf("请输入选课学期（格式 YYYY-01 春季 或 YYYY-02 秋季）: ");
+        fgets(rec.semester, MAX_SEMESTER_LEN, stdin);
+        rec.semester[strcspn(rec.semester, "\n")] = '\0';
+        
+        ret = validate_semester(rec.semester);
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    }
     
-    printf("请输入成绩（0-100）: ");
-    fgets(input, sizeof(input), stdin);
-    rec.score = atoi(input);
+    /* 输入选课日期 */
+    while (1) {
+        printf("请输入选课日期（年 月 日，空格分隔）: ");
+        fgets(input, sizeof(input), stdin);
+        sscanf(input, "%d %d %d", &rec.enroll_date.year, 
+               &rec.enroll_date.month, &rec.enroll_date.day);
+        
+        ret = validate_enroll_date(&rec.enroll_date, rec.semester);
+        if (ret == OK) break;
+        printf("  ⚠ %s\n", get_validate_error_msg(ret));
+        printf("   提示：本学期选课日期范围应为");
+        if (rec.semester[6] == '1') printf(" 2月1日~4月30日\n");
+        else                        printf(" 8月1日~10月31日\n");
+    }
     
-    /* 检查是否已存在相同学号+课程编号的记录 */
-    {
-        int j;
-        for (j = 0; j < g_record_count; j++) {
-            if (strcmp(g_records[j].student_id, rec.student_id) == 0 &&
-                strcmp(g_records[j].course_id, rec.course_id) == 0) {
-                printf("错误：学号 %s 的课程 %s 已存在！\n", rec.student_id, rec.course_id);
-                pause_msg(NULL);
-                return;
-            }
-        }
+    /* 输入成绩 */
+    while (1) {
+        printf("请输入成绩（0-100）: ");
+        fgets(input, sizeof(input), stdin);
+        rec.score = atoi(input);
+        
+        ret = validate_score(rec.score);
+        if (ret == OK) break;
+        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     /* 插入到数组 */
@@ -255,7 +373,10 @@ static void menu_insert_record(void)
     avl_insert(&g_avl, &rec);
     hash_insert(&g_hash, &rec);
     
-    printf("插入成功！当前共 %d 条记录\n", g_record_count);
+    printf("\n✅ 插入成功！当前共 %d 条记录\n", g_record_count);
+    print_record_header();
+    print_record(&rec);
+    print_record_footer();
     
     pause_msg(NULL);
 }
