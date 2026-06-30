@@ -402,7 +402,7 @@ static const char *colleges[] = {
 #define COLLEGE_COUNT 8
 
 /* 课程信息 */
-static const char *course_data[][3] = {
+const char *course_data[][3] = {
     {"CS300101", "程序设计基础", "3.5"},
     {"CS300102", "数据结构与算法", "3.5"},
     {"CS300103", "操作系统原理", "3.0"},
@@ -476,11 +476,13 @@ void generate_record(Record *rec, int index)
     int course_idx;
     int semester_idx;
     int sem_year, sem_month;
+    int college_idx;
     
-    /* 学号：前4位入学年份 + 2位学院代码 + 6位序号 */
-    year = 2020 + (index / 2000) % 4;  /* 2020-2023级 */
+    /* 学号：前4位入学年份 + 2位学院代码(与colleges[]索引对应) + 6位序号 */
+    year = 2020 + rand() % 4;  /* 2020-2023级随机分布 */
+    college_idx = rand() % COLLEGE_COUNT;
     {
-        int college_code = (rand() % 8) + 1;
+        int college_code = college_idx + 1;
         int seq = (index % 999999) + 1;
         sprintf(rec->student_id, "%04d%02d%06d", year, college_code, seq);
     }
@@ -488,8 +490,8 @@ void generate_record(Record *rec, int index)
     /* 姓名 */
     generate_name(rec->name);
     
-    /* 学院 */
-    str_copy(rec->college, colleges[rand() % COLLEGE_COUNT], MAX_COLLEGE_LEN);
+    /* 学院（与学号中的学院编码一致） */
+    str_copy(rec->college, colleges[college_idx], MAX_COLLEGE_LEN);
     
     /* 课程 */
     course_idx = rand() % COURSE_COUNT;
@@ -497,8 +499,28 @@ void generate_record(Record *rec, int index)
     str_copy(rec->course_name, course_data[course_idx][1], MAX_COURSE_NAME_LEN);
     rec->credit = (float)atof(course_data[course_idx][2]);
     
-    /* 选课学期 */
-    semester_idx = rand() % SEMESTER_COUNT;
+    /* 选课学期（限制在学生入学后1~6年内） */
+    {
+        int max_sem_offset = 6;
+        int attempt = 0;
+        do {
+            semester_idx = rand() % SEMESTER_COUNT;
+            {
+                int sem_y = (semesters[semester_idx][0]-'0')*1000 +
+                            (semesters[semester_idx][1]-'0')*100 +
+                            (semesters[semester_idx][2]-'0')*10 +
+                            (semesters[semester_idx][3]-'0');
+                if (sem_y >= year && sem_y - year <= max_sem_offset) {
+                    break;
+                }
+            }
+            attempt++;
+        } while (attempt < 50);
+        if (attempt >= 50) {
+            semester_idx = (year - 2020) * 2;
+            if (semester_idx >= SEMESTER_COUNT) semester_idx = SEMESTER_COUNT - 1;
+        }
+    }
     str_copy(rec->semester, semesters[semester_idx], MAX_SEMESTER_LEN);
     
     /* 选课日期 - 与学期对应的选课时段内随机 */
@@ -566,7 +588,40 @@ void generate_records(Record *records, int count)
     }
 }
 
-/* 打印一条记录 */
+/* 成绩转等级 */
+const char *score_to_grade(int score)
+{
+    if (score < 0)  return "未出";
+    if (score >= 90) return "优秀";
+    if (score >= 80) return "良好";
+    if (score >= 70) return "中等";
+    if (score >= 60) return "及格";
+    return "不及格";
+}
+
+/* 打印带等级的表头 */
+void print_record_header_with_grade(void)
+{
+    printf("+--------------+----------+----------+----------+------------------+-----+---------+------------+-----+--------+\n");
+    printf("| 学号         | 姓名    | 学院    | 课程编号 | 课程名称         |学分 | 学期   | 选课日期   |成绩 | 等级   |\n");
+    printf("+--------------+----------+----------+----------+------------------+-----+---------+------------+-----+--------+\n");
+}
+
+/* 打印带等级的表尾 */
+void print_record_footer_with_grade(void)
+{
+    printf("+--------------+----------+----------+----------+------------------+-----+---------+------------+-----+--------+\n");
+}
+
+/* 打印一条带等级的记录 */
+void print_record_with_grade(const Record *rec)
+{
+    printf("| %-12s | %-8s | %-8s | %-8s | %-16s | %5.1f | %-7s | %04d-%02d-%02d | %3d | %-6s |\n",
+           rec->student_id, rec->name, rec->college, rec->course_id, rec->course_name,
+           rec->credit, rec->semester,
+           rec->enroll_date.year, rec->enroll_date.month, rec->enroll_date.day,
+           rec->score, score_to_grade(rec->score));
+}
 void print_record(const Record *rec)
 {
     printf("| %-12s | %-8s | %-8s | %-8s | %-16s | %5.1f | %-7s | %04d-%02d-%02d | %3d |\n",
@@ -588,4 +643,18 @@ void print_record_header(void)
 void print_record_footer(void)
 {
     printf("+--------------+----------+----------+----------+------------------+-----+---------+------------+-----+\n");
+}
+
+/* ���ڿγ̿��в��ҿγ���Ϣ */
+int lookup_course(const char *course_id, char *course_name, float *credit)
+{
+    int ci;
+    for (ci = 0; ci < COURSE_COUNT; ci++) {
+        if (strcmp(course_id, course_data[ci][0]) == 0) {
+            strcpy(course_name, course_data[ci][1]);
+            *credit = (float)atof(course_data[ci][2]);
+            return 1;
+        }
+    }
+    return 0;
 }

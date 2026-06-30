@@ -61,12 +61,21 @@ void generate_records(Record *records, int count);
 void print_record(const Record *rec);
 void print_record_header(void);
 void print_record_footer(void);
+void print_record_with_grade(const Record *rec);
+void print_record_header_with_grade(void);
+void print_record_footer_with_grade(void);
+const char *score_to_grade(int score);
+
+/* 课程查找 */
+int lookup_course(const char *course_id, char *course_name, float *credit);
 
 /* 筛选字段类型 */
 #define FILTER_COURSE_NAME  0
 #define FILTER_SEMESTER     1
 #define FILTER_SCORE_RANGE  2
 #define FILTER_COLLEGE      3
+#define FILTER_STUDENT_ID   4
+#define FILTER_COURSE_ID    5
 
 /* 操作结果 */
 #define OK          0

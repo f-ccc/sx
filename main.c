@@ -264,108 +264,106 @@ static void menu_insert_record(void)
         printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
-    /* 输入课程编号并立即校验非空 */
+    /* ===== 输入课程编号，自动匹配课程信息 ===== */
     while (1) {
         printf("请输入课程编号（8位）: ");
         fgets(rec.course_id, MAX_COURSE_ID_LEN, stdin);
         rec.course_id[strcspn(rec.course_id, "\n")] = '\0';
         
-        ret = validate_not_empty(rec.course_id, "课程编号");
-        if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        /* 尝试在课程库中自动匹配 */
+        if (lookup_course(rec.course_id, rec.course_name, &rec.credit)) {
+            printf("  → 匹配到课程: %s (%.1f学分)\n", rec.course_name, rec.credit);
+            break;
+        } else {
+            printf("  ⚠ 未在课程库中找到该编号，请手动输入课程信息\n");
+            while (1) {
+                printf("请输入课程名称: ");
+                fgets(rec.course_name, MAX_COURSE_NAME_LEN, stdin);
+                rec.course_name[strcspn(rec.course_name, "\n")] = '\0';
+                if (validate_not_empty(rec.course_name, "课程名称") == OK) break;
+                printf("  ⚠ 课程名称不能为空\n");
+            }
+            while (1) {
+                printf("请输入学分: ");
+                fgets(input, sizeof(input), stdin);
+                rec.credit = (float)atof(input);
+                if (rec.credit > 0.0f && rec.credit <= 20.0f) break;
+                printf("  ⚠ 学分无效（应为0.5~20.0之间的数）\n");
+            }
+        }
+        break;
     }
     
-    /* 输入姓名 */
+    /* 姓名 */
     while (1) {
         printf("请输入姓名: ");
         fgets(rec.name, MAX_NAME_LEN, stdin);
         rec.name[strcspn(rec.name, "\n")] = '\0';
-        
         ret = validate_not_empty(rec.name, "姓名");
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ⚠ %s\n", get_validate_error_msg(ret));
     }
     
-    /* 输入学院 */
+    /* 学院 */
     while (1) {
         printf("请输入学院: ");
         fgets(rec.college, MAX_COLLEGE_LEN, stdin);
         rec.college[strcspn(rec.college, "\n")] = '\0';
-        
         ret = validate_not_empty(rec.college, "学院");
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ⚠ %s\n", get_validate_error_msg(ret));
     }
     
-    /* 输入课程名称 */
-    while (1) {
-        printf("请输入课程名称: ");
-        fgets(rec.course_name, MAX_COURSE_NAME_LEN, stdin);
-        rec.course_name[strcspn(rec.course_name, "\n")] = '\0';
-        
-        ret = validate_not_empty(rec.course_name, "课程名称");
-        if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+    /* ===== 学期：自动设为当前学期 ===== */
+    {
+        time_t now = time(NULL);
+        struct tm *tm_info = localtime(&now);
+        if (tm_info != NULL) {
+            int cur_year = tm_info->tm_year + 1900;
+            int cur_mon = tm_info->tm_mon + 1;
+            char sem_buf[8];
+            if (cur_mon >= 1 && cur_mon <= 6)
+                sprintf(sem_buf, "%04d-01", cur_year);
+            else
+                sprintf(sem_buf, "%04d-02", cur_year);
+            strcpy(rec.semester, sem_buf);
+            printf("  当前学期: %s (自动)\n", rec.semester);
+        } else {
+            strcpy(rec.semester, "2024-01");
+        }
     }
     
-    /* 输入学分 */
-    while (1) {
-        printf("请输入学分: ");
-        fgets(input, sizeof(input), stdin);
-        rec.credit = (float)atof(input);
-        if (rec.credit > 0.0f && rec.credit <= 20.0f) break;
-        printf("  ⚠ 学分无效（应为0.5~20.0之间的数），请重新输入\n");
-    }
-    
-    /* 输入学期 */
-    while (1) {
-        printf("请输入选课学期（格式 YYYY-01 春季 或 YYYY-02 秋季）: ");
-        fgets(rec.semester, MAX_SEMESTER_LEN, stdin);
-        rec.semester[strcspn(rec.semester, "\n")] = '\0';
-        
-        ret = validate_semester(rec.semester);
-        if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
-    }
-    
-    /* ★ 去重检查：学号+课程编号+学期 三重键 */
-    /*   - 同学期=重复拦截                        */
-    /*   - 不同学期=重修场景，自动放行             */
+    /* 去重检查：学号+课程编号+学期 三重键 */
     duplicate = check_duplicate_triple_key(g_records, g_record_count,
                                           rec.student_id, rec.course_id, rec.semester);
     if (duplicate) {
         printf("  ❌ 错误：学号 %s 本学期（%s）已选修课程 %s，不可重复提交！\n",
                rec.student_id, rec.semester, rec.course_id);
-        printf("  （如需重修请选择其他学期）\n");
+        printf("  （如需重修请等下学期再选）\n");
         pause_msg(NULL);
         return;
     }
     
-    /* 输入选课日期 */
-    while (1) {
-        printf("请输入选课日期（年 月 日，空格分隔）: ");
-        fgets(input, sizeof(input), stdin);
-        sscanf(input, "%d %d %d", &rec.enroll_date.year, 
-               &rec.enroll_date.month, &rec.enroll_date.day);
-        
-        ret = validate_enroll_date(&rec.enroll_date, rec.semester);
-        if (ret == OK) break;
-        printf("  ⚠ %s\n", get_validate_error_msg(ret));
-        printf("   提示：本学期选课日期范围应为");
-        if (rec.semester[6] == '1') printf(" 2月1日~4月30日\n");
-        else                        printf(" 8月1日~10月31日\n");
+    /* ===== 选课日期：自动设为当前日期 ===== */
+    {
+        time_t now = time(NULL);
+        struct tm *tm_info = localtime(&now);
+        if (tm_info != NULL) {
+            rec.enroll_date.year = tm_info->tm_year + 1900;
+            rec.enroll_date.month = tm_info->tm_mon + 1;
+            rec.enroll_date.day = tm_info->tm_mday;
+        } else {
+            rec.enroll_date.year = 2024;
+            rec.enroll_date.month = 9;
+            rec.enroll_date.day = 1;
+        }
+        printf("  选课日期: %04d-%02d-%02d (系统自动记录)\n",
+               rec.enroll_date.year, rec.enroll_date.month, rec.enroll_date.day);
     }
     
-    /* 输入成绩 */
-    while (1) {
-        printf("请输入成绩（0-100）: ");
-        fgets(input, sizeof(input), stdin);
-        rec.score = atoi(input);
-        
-        ret = validate_score(rec.score);
-        if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
-    }
+    /* ===== 成绩：选课时不录入，设为-1 ===== */
+    rec.score = -1;
+    printf("  成绩: 未出（选课时不录入，教师后续录入）\n");
     
     /* 插入到数组 */
     g_records[g_record_count] = rec;
@@ -486,53 +484,82 @@ static void menu_find_record(void)
 {
     char student_id[MAX_STUDENT_ID_LEN];
     char course_id[MAX_COURSE_ID_LEN];
-    HashNode *hnode;
-    AVLNode *anode;
-    ListNode *lnode;
+    int i;
+    int found = 0;
+    int mode = 0;  /* 0=精确(学号+课程), 1=仅学号, 2=仅课程 */
+    char input[32];
     
     clear_screen();
     printf("========================================\n");
     printf("          查找选课记录\n");
     printf("========================================\n");
+    printf("查找方式:\n");
+    printf("  1. 按学号+课程编号精确查找\n");
+    printf("  2. 按学号查找（某学生所有选课）\n");
+    printf("  3. 按课程编号查找（某课程所有选课学生）\n");
+    printf("请选择 (1-3): ");
+    fgets(input, sizeof(input), stdin);
+    mode = atoi(input);
+    if (mode < 1 || mode > 3) mode = 1;
     
-    printf("请输入学号: ");
-    fgets(student_id, MAX_STUDENT_ID_LEN, stdin);
-    student_id[strcspn(student_id, "\n")] = '\0';
-    
-    printf("请输入课程编号: ");
-    fgets(course_id, MAX_COURSE_ID_LEN, stdin);
-    course_id[strcspn(course_id, "\n")] = '\0';
-    
-    printf("\n查找结果:\n");
-    
-    /* 在三种结构中查找 */
-    lnode = list_find_by_id(&g_list, student_id, course_id);
-    anode = avl_find(&g_avl, student_id, course_id);
-    hnode = hash_find(&g_hash, student_id, course_id);
-    
-    if (lnode != NULL) {
-        printf("\n[链表中找到记录]\n");
-        print_record_header();
-        print_record(&lnode->data);
-        print_record_footer();
+    switch (mode) {
+        case 1:
+            printf("请输入学号: ");
+            fgets(student_id, MAX_STUDENT_ID_LEN, stdin);
+            student_id[strcspn(student_id, "\n")] = '\0';
+            printf("请输入课程编号: ");
+            fgets(course_id, MAX_COURSE_ID_LEN, stdin);
+            course_id[strcspn(course_id, "\n")] = '\0';
+            
+            printf("\n查找结果:\n");
+            print_record_header_with_grade();
+            for (i = 0; i < g_record_count; i++) {
+                if (strcmp(g_records[i].student_id, student_id) == 0 &&
+                    strcmp(g_records[i].course_id, course_id) == 0) {
+                    print_record_with_grade(&g_records[i]);
+                    found++;
+                }
+            }
+            print_record_footer_with_grade();
+            break;
+            
+        case 2:
+            printf("请输入学号: ");
+            fgets(student_id, MAX_STUDENT_ID_LEN, stdin);
+            student_id[strcspn(student_id, "\n")] = '\0';
+            
+            printf("\n学生 %s 的所有选课记录:\n", student_id);
+            print_record_header_with_grade();
+            for (i = 0; i < g_record_count; i++) {
+                if (strcmp(g_records[i].student_id, student_id) == 0) {
+                    print_record_with_grade(&g_records[i]);
+                    found++;
+                }
+            }
+            print_record_footer_with_grade();
+            break;
+            
+        case 3:
+            printf("请输入课程编号: ");
+            fgets(course_id, MAX_COURSE_ID_LEN, stdin);
+            course_id[strcspn(course_id, "\n")] = '\0';
+            
+            printf("\n课程 %s 的所有选课学生:\n", course_id);
+            print_record_header_with_grade();
+            for (i = 0; i < g_record_count; i++) {
+                if (strcmp(g_records[i].course_id, course_id) == 0) {
+                    print_record_with_grade(&g_records[i]);
+                    found++;
+                }
+            }
+            print_record_footer_with_grade();
+            break;
     }
     
-    if (anode != NULL) {
-        printf("\n[AVL树中找到记录]\n");
-        print_record_header();
-        print_record(&anode->data);
-        print_record_footer();
-    }
-    
-    if (hnode != NULL) {
-        printf("\n[哈希表中找到记录]\n");
-        print_record_header();
-        print_record(&hnode->data);
-        print_record_footer();
-    }
-    
-    if (lnode == NULL && anode == NULL && hnode == NULL) {
+    if (found == 0) {
         printf("未找到匹配的记录\n");
+    } else {
+        printf("共找到 %d 条记录\n", found);
     }
     
     pause_msg(NULL);
@@ -694,6 +721,7 @@ static void menu_list_records(void)
     int page_size = 20;
     int total_pages;
     char input[32];
+    int choice;
     
     if (g_record_count == 0) {
         printf("当前无记录\n");
@@ -710,21 +738,28 @@ static void menu_list_records(void)
         printf("      第 %d/%d 页\n", page + 1, total_pages);
         printf("========================================\n");
         
-        print_record_header();
+        print_record_header_with_grade();
         
         for (i = page * page_size; i < g_record_count && i < (page + 1) * page_size; i++) {
-            print_record(&g_records[i]);
+            print_record_with_grade(&g_records[i]);
         }
         
-        print_record_footer();
+        print_record_footer_with_grade();
         
-        printf("\n操作: n-下一页 p-上一页 q-返回: ");
+        printf("\n操作: n-下一页 p-上一页 g-跳转 q-返回: ");
         fgets(input, sizeof(input), stdin);
         
         if (input[0] == 'n' || input[0] == 'N') {
             if (page < total_pages - 1) page++;
         } else if (input[0] == 'p' || input[0] == 'P') {
             if (page > 0) page--;
+        } else if (input[0] == 'g' || input[0] == 'G') {
+            printf("请输入目标页码 (1-%d): ", total_pages);
+            fgets(input, sizeof(input), stdin);
+            choice = atoi(input);
+            if (choice >= 1 && choice <= total_pages) {
+                page = choice - 1;
+            }
         } else if (input[0] == 'q' || input[0] == 'Q') {
             break;
         }
@@ -801,10 +836,12 @@ static void menu_filter_sort(void)
     
     /* 选择筛选条件 */
     printf("请选择筛选条件（可多选，输入0结束选择）:\n");
-    printf("1. 课程名称\n");
-    printf("2. 选课学期\n");
+    printf("1. 课程名称（模糊）\n");
+    printf("2. 选课学期（精确）\n");
     printf("3. 成绩区间\n");
-    printf("4. 学院\n");
+    printf("4. 学院（模糊）\n");
+    printf("5. 学号（模糊）\n");
+    printf("6. 课程编号（模糊）\n");
     printf("0. 结束选择\n");
     
     while (cond_count < 4) {
@@ -843,10 +880,26 @@ static void menu_filter_sort(void)
                 break;
             case 4:
                 conditions[cond_count].field = FILTER_COLLEGE;
-                printf("  请输入学院名称: ");
+                printf("  请输入学院名称（支持模糊匹配）: ");
                 fgets(conditions[cond_count].str_value, 64, stdin);
                 conditions[cond_count].str_value[strcspn(conditions[cond_count].str_value, "\n")] = '\0';
-                conditions[cond_count].is_fuzzy = 0;
+                conditions[cond_count].is_fuzzy = 1;
+                cond_count++;
+                break;
+            case 5:
+                conditions[cond_count].field = FILTER_STUDENT_ID;
+                printf("  请输入学号（支持模糊匹配）: ");
+                fgets(conditions[cond_count].str_value, 64, stdin);
+                conditions[cond_count].str_value[strcspn(conditions[cond_count].str_value, "\n")] = '\0';
+                conditions[cond_count].is_fuzzy = 1;
+                cond_count++;
+                break;
+            case 6:
+                conditions[cond_count].field = FILTER_COURSE_ID;
+                printf("  请输入课程编号（支持模糊匹配）: ");
+                fgets(conditions[cond_count].str_value, 64, stdin);
+                conditions[cond_count].str_value[strcspn(conditions[cond_count].str_value, "\n")] = '\0';
+                conditions[cond_count].is_fuzzy = 1;
                 cond_count++;
                 break;
         }
@@ -903,16 +956,34 @@ static void menu_filter_sort(void)
             }
         }
         
-        /* 显示结果 */
-        printf("\n筛选结果:\n");
-        print_record_header();
-        for (i = 0; i < result.count && i < 30; i++) {
-            print_record(&result.records[i]);
+        /* 显示结果（带分页） */
+        {
+            int page = 0;
+            int page_size = 20;
+            int total_pages = (result.count + page_size - 1) / page_size;
+            
+            while (1) {
+                int start = page * page_size;
+                int end = start + page_size;
+                if (end > result.count) end = result.count;
+                
+                printf("\n筛选结果 (第 %d/%d 页，共 %d 条):\n", 
+                       page + 1, total_pages, result.count);
+                print_record_header_with_grade();
+                for (i = start; i < end; i++) {
+                    print_record_with_grade(&result.records[i]);
+                }
+                print_record_footer_with_grade();
+                
+                if (total_pages <= 1) break;
+                
+                printf("n-下一页 p-上一页 q-退出浏览: ");
+                fgets(input, sizeof(input), stdin);
+                if (input[0] == 'n' && page < total_pages - 1) page++;
+                else if (input[0] == 'p' && page > 0) page--;
+                else if (input[0] == 'q') break;
+            }
         }
-        if (result.count > 30) {
-            printf("... (共 %d 条，仅显示前30条)\n", result.count);
-        }
-        print_record_footer();
         
         /* 导出选项 */
         printf("\n是否导出到文件? (y/n): ");

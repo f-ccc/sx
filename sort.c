@@ -121,7 +121,25 @@ static int record_matches_all(const Record *rec, const FilterCondition *conditio
                 break;
                 
             case FILTER_COLLEGE:
-                if (strcmp(rec->college, conditions[i].str_value) != 0) {
+                if (conditions[i].is_fuzzy) {
+                    if (!fuzzy_match(rec->college, conditions[i].str_value)) {
+                        return 0;
+                    }
+                } else {
+                    if (strcmp(rec->college, conditions[i].str_value) != 0) {
+                        return 0;
+                    }
+                }
+                break;
+                
+            case FILTER_STUDENT_ID:
+                if (!fuzzy_match(rec->student_id, conditions[i].str_value)) {
+                    return 0;
+                }
+                break;
+                
+            case FILTER_COURSE_ID:
+                if (!fuzzy_match(rec->course_id, conditions[i].str_value)) {
                     return 0;
                 }
                 break;
