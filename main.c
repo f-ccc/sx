@@ -287,7 +287,7 @@ static void menu_insert_record(void)
                 printf("请输入学分: ");
                 fgets(input, sizeof(input), stdin);
                 rec.credit = (float)atof(input);
-                if (rec.credit > 0.0f && rec.credit <= 20.0f) break;
+                if (rec.credit >= 0.5f && rec.credit <= 20.0f) break;
                 printf("  ⚠ 学分无效（应为0.5~20.0之间的数）\n");
             }
         }
@@ -657,7 +657,7 @@ static void menu_update_record(void)
         printf("请输入新的学分（原: %.1f）: ", g_records[i].credit);
         fgets(input, sizeof(input), stdin);
         new_rec.credit = (float)atof(input);
-        if (new_rec.credit > 0.0f && new_rec.credit <= 20.0f) break;
+        if (new_rec.credit >= 0.5f && new_rec.credit <= 20.0f) break;
         printf("  ⚠ 学分无效（应为0.5~20.0之间的数），请重新输入\n");
     }
     
@@ -1194,6 +1194,9 @@ static void menu_performance_test(void)
         result_count++;
     }
     
+    /* 恢复随机种子 */
+    srand((unsigned int)(time(NULL) ^ rand()));
+    
     /* 打印报告 */
     print_performance_report(results, result_count);
     print_complexity_analysis();
@@ -1286,6 +1289,9 @@ static void menu_stress_test(void)
     hash_clear(&hash);
     
     free(test_data);
+    
+    /* 恢复随机种子，避免影响后续数据生成 */
+    srand((unsigned int)(time(NULL) ^ rand()));
     
     printf("\n压力测试完成！\n");
     pause_msg(NULL);
