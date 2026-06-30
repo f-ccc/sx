@@ -288,8 +288,8 @@ int validate_record(const Record *rec)
     ret = validate_not_empty(rec->course_name, "课程名称");
     if (ret != OK) return ret;
     
-    if (rec->credit <= 0.0f || rec->credit > 20.0f) {
-        return INVALID_SCORE;  /* 复用INVALID_SCORE表示学分不合理 */
+    if (rec->credit < 0.5f || rec->credit > 20.0f) {
+        return INVALID_SCORE;  /* 学分不合理 */
     }
     
     ret = validate_semester(rec->semester);
