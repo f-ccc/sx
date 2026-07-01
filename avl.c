@@ -226,9 +226,11 @@ AVLNode *avl_delete_node(AVLNode *node, const char *student_id, const char *cour
     cmp = avl_key_compare_str(&node->data, student_id, course_id);
     
     if (cmp < 0) {
-        node->left = avl_delete_node(node->left, student_id, course_id, result);
-    } else if (cmp > 0) {
+        /* node->data < target：目标更大，应在右子树中删除 */
         node->right = avl_delete_node(node->right, student_id, course_id, result);
+    } else if (cmp > 0) {
+        /* node->data > target：目标更小，应在左子树中删除 */
+        node->left = avl_delete_node(node->left, student_id, course_id, result);
     } else {
         /* 找到要删除的节点 */
         AVLNode *temp;
@@ -339,9 +341,11 @@ AVLNode *avl_find_node(AVLNode *node, const char *student_id, const char *course
     if (cmp == 0) {
         return node;
     } else if (cmp < 0) {
-        return avl_find_node(node->left, student_id, course_id);
-    } else {
+        /* node->data < target：目标更大，应在右子树 */
         return avl_find_node(node->right, student_id, course_id);
+    } else {
+        /* node->data > target：目标更小，应在左子树 */
+        return avl_find_node(node->left, student_id, course_id);
     }
 }
 

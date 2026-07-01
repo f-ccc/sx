@@ -373,6 +373,78 @@ static void test_avl_tree(void)
         avl_clear(&tree);
     }
     PASS();
+    
+    /* 针对非根节点的操作测试（验证avl_find/delete方向正确性） */
+    TEST("AVL树非根节点查找（左叶子）");
+    {
+        avl_init(&tree);
+        /* 插入顺序：中->小->大，形成平衡树 */
+        strcpy(rec2.student_id, "202400000002");
+        strcpy(rec2.course_id, "CS300002");
+        strcpy(rec1.student_id, "202400000001");
+        strcpy(rec1.course_id, "CS300001");
+        strcpy(rec3.student_id, "202400000003");
+        strcpy(rec3.course_id, "CS300003");
+        avl_insert(&tree, &rec2);  /* 根 */
+        avl_insert(&tree, &rec1);  /* 左子 */
+        avl_insert(&tree, &rec3);  /* 右子 */
+        ASSERT(avl_size(&tree) == 3, "size应为3");
+        /* 查找左叶子（非根节点） */
+        node = avl_find(&tree, "202400000001", "CS300001");
+        ASSERT(node != NULL, "应找到左叶子");
+        ASSERT(strcmp(node->data.name, rec1.name) == 0, "姓名应匹配");
+        /* 查找右叶子（非根节点） */
+        node = avl_find(&tree, "202400000003", "CS300003");
+        ASSERT(node != NULL, "应找到右叶子");
+        avl_clear(&tree);
+    }
+    PASS();
+    
+    TEST("AVL树非根节点删除（左叶子）");
+    {
+        avl_init(&tree);
+        strcpy(rec2.student_id, "202400000002");
+        strcpy(rec2.course_id, "CS300002");
+        strcpy(rec1.student_id, "202400000001");
+        strcpy(rec1.course_id, "CS300001");
+        strcpy(rec3.student_id, "202400000003");
+        strcpy(rec3.course_id, "CS300003");
+        avl_insert(&tree, &rec2);
+        avl_insert(&tree, &rec1);
+        avl_insert(&tree, &rec3);
+        /* 删除左叶子 */
+        ASSERT(avl_delete(&tree, "202400000001", "CS300001") == OK, "删除左叶子");
+        ASSERT(avl_size(&tree) == 2, "size应为2");
+        ASSERT(avl_find(&tree, "202400000001", "CS300001") == NULL, "删除后不应找到");
+        avl_clear(&tree);
+    }
+    PASS();
+    
+    TEST("AVL树非根节点更新（右叶子）");
+    {
+        Record updated;
+        avl_init(&tree);
+        strcpy(rec2.student_id, "202400000002");
+        strcpy(rec2.course_id, "CS300002");
+        strcpy(rec1.student_id, "202400000001");
+        strcpy(rec1.course_id, "CS300001");
+        strcpy(rec3.student_id, "202400000003");
+        strcpy(rec3.course_id, "CS300003");
+        avl_insert(&tree, &rec2);
+        avl_insert(&tree, &rec1);
+        avl_insert(&tree, &rec3);
+        /* 更新右叶子 */
+        updated = rec3;
+        strcpy(updated.name, "右叶子更新");
+        updated.score = 99;
+        ASSERT(avl_update(&tree, "202400000003", "CS300003", &updated) == OK, "更新右叶子");
+        node = avl_find(&tree, "202400000003", "CS300003");
+        ASSERT(node != NULL, "更新后应能找到");
+        ASSERT(strcmp(node->data.name, "右叶子更新") == 0, "姓名已更新");
+        ASSERT(node->data.score == 99, "成绩已更新");
+        avl_clear(&tree);
+    }
+    PASS();
 }
 
 /* ========== 测试5: 哈希表 ========== */

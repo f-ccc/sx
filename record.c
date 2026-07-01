@@ -289,7 +289,7 @@ int validate_record(const Record *rec)
     if (ret != OK) return ret;
     
     if (rec->credit < 0.5f || rec->credit > 20.0f) {
-        return INVALID_SCORE;  /* 学分不合理 */
+        return INVALID_SCORE;  /* 学分超出合理范围 */
     }
     
     ret = validate_semester(rec->semester);
@@ -382,7 +382,7 @@ static const char *surnames[] = {
 static const char *given_names[] = {
     "伟","芳","娜","敏","静","丽","强","磊","军","洋",
     "勇","艳","杰","娟","涛","明","超","秀","霞","平",
-    "刚","华","飞","鑫","鑫","宇","浩","雷","林","峰",
+    "刚","华","飞","鑫","宇","浩","雷","林","峰",
     "辉","玲","琳","婷","萱","颖","文","博","智","辉",
     "天","宇","翔","瑞","晨","阳","嘉","怡","俊","帅"
 };
@@ -432,9 +432,9 @@ static const char *semesters[] = {
     "2023-01", "2023-02",
     "2024-01", "2024-02",
     "2025-01", "2025-02",
-    "2026-01"
+    "2026-01", "2026-02"
 };
-#define SEMESTER_COUNT 13
+#define SEMESTER_COUNT 14
 
 /* 从学期解析年份和月份 */
 static void parse_semester_date(const char *semester, int *year, int *month)
@@ -479,7 +479,7 @@ void generate_record(Record *rec, int index)
     int college_idx;
     
     /* 学号：前4位入学年份 + 2位学院代码(与colleges[]索引对应) + 6位序号 */
-    year = 2020 + rand() % 4;  /* 2020-2023级随机分布 */
+    year = 2020 + rand() % 6;  /* 2020-2025级随机分布 */
     college_idx = rand() % COLLEGE_COUNT;
     {
         int college_code = college_idx + 1;
@@ -572,18 +572,19 @@ void generate_records(Record *records, int count)
                     records[i].semester)));
         
         if (attempts >= MAX_ATTEMPTS) {
-            /* 极端情况下：手动构造一条合法记录 */
-            strcpy(records[i].student_id, "202400000001");
-            strcpy(records[i].name, "测试用户");
-            strcpy(records[i].college, "计算机科学与工程学院");
-            strcpy(records[i].course_id, "CS300001");
-            strcpy(records[i].course_name, "通识课程");
+            /* 极端情况下：构造一条合法记录（使用index确保唯一性） */
+            sprintf(records[i].student_id, "2024%02d%06d", 
+                    (i % 98) + 1, (i % 999999) + 1);
+            sprintf(records[i].name, "用户%d", i + 1);
+            strcpy(records[i].college, colleges[i % COLLEGE_COUNT]);
+            sprintf(records[i].course_id, "CS%04d", (i % 9000) + 1000);
+            sprintf(records[i].course_name, "课程%d", i + 1);
             records[i].credit = 2.0f;
-            strcpy(records[i].semester, "2024-01");
+            strcpy(records[i].semester, semesters[i % SEMESTER_COUNT]);
             records[i].enroll_date.year = 2024;
             records[i].enroll_date.month = 3;
             records[i].enroll_date.day = 15;
-            records[i].score = 75;
+            records[i].score = 60 + (i % 41);
         }
     }
 }

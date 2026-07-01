@@ -50,22 +50,76 @@ static void clear_screen(void)
     system("cls");
 }
 
+/* 安全读取一行输入，超过缓冲区大小则丢弃剩余字符 */
+static void safe_fgets(char *buf, int size)
+{
+    int has_newline;
+    
+    if (buf == NULL || size <= 0) return;
+    
+    fgets(buf, size, stdin);
+    
+    /* 检查是否读到了换行符 */
+    has_newline = 0;
+    {
+        int i;
+        for (i = 0; i < size - 1 && buf[i] != '\0'; i++) {
+            if (buf[i] == '\n') {
+                has_newline = 1;
+                buf[i] = '\0';
+                break;
+            }
+        }
+    }
+    
+    /* 没有换行符说明输入过长，丢弃缓冲区剩余字符 */
+    if (!has_newline) {
+        int ch;
+        while ((ch = getchar()) != '\n' && ch != EOF) {
+            /* 丢弃 */
+        }
+    }
+}
+
 /* 暂停 - 等待用户按键 */
 static void pause_msg(const char *msg)
 {
-    char buf[32];
+    char buf[256];
     
     if (msg != NULL && msg[0] != '\0') {
         printf("%s", msg);
     } else {
         printf("\n按回车键继续...");
     }
-    fgets(buf, sizeof(buf), stdin);
+    safe_fgets(buf, sizeof(buf));
 }
 
 /* ========== 数据加载与保存 ========== */
 
 /* 从文件加载数据（含校验+去重） */
+static int count_csv_data_lines(const char *filename)
+{
+    FILE *fp;
+    char buf[4096];
+    int count = 0;
+    
+    fp = fopen(filename, "r");
+    if (fp == NULL) return 0;
+    
+    /* 跳过表头 */
+    if (fgets(buf, sizeof(buf), fp) == NULL) {
+        fclose(fp);
+        return 0;
+    }
+    
+    while (fgets(buf, sizeof(buf), fp) != NULL) {
+        count++;
+    }
+    
+    fclose(fp);
+    return count;
+}
+
 static int load_data(void)
 {
     int ret;
@@ -75,6 +129,21 @@ static int load_data(void)
     int *valid_flags = NULL;
     int dup_skipped = 0;
     int invalid_skipped = 0;
+    int total_lines;
+    
+    /* 先统计CSV中数据行数，确保容量足够 */
+    total_lines = count_csv_data_lines(g_data_file);
+    if (total_lines > g_record_capacity) {
+        Record *new_records;
+        int new_capacity = total_lines + 1000;  /* 多留余量 */
+        new_records = (Record *)realloc(g_records, sizeof(Record) * new_capacity);
+        if (new_records == NULL) {
+            printf("错误：内存不足（需要 %d 条记录）\n", new_capacity);
+            return ERR;
+        }
+        g_records = new_records;
+        g_record_capacity = new_capacity;
+    }
     
     ret = csv_load_records(g_data_file, g_records, &raw_count, g_record_capacity);
     if (ret != OK) {
@@ -100,7 +169,7 @@ static int load_data(void)
         /* 字段校验 */
         ret = validate_record(&g_records[i]);
         if (ret != OK) {
-            printf("  ⚠ 第%d条记录校验失败：%s\n", i + 1, get_validate_error_msg(ret));
+            printf("  ?? 第%d条记录校验失败：%s\n", i + 1, get_validate_error_msg(ret));
             valid_flags[i] = 0;
             invalid_skipped++;
             continue;
@@ -112,7 +181,7 @@ static int load_data(void)
                 strcmp(g_records[j].student_id, g_records[i].student_id) == 0 &&
                 strcmp(g_records[j].course_id, g_records[i].course_id) == 0 &&
                 strcmp(g_records[j].semester, g_records[i].semester) == 0) {
-                printf("  ⚠ 第%d条与第%d条（同学期）重复，跳过\n", i + 1, j + 1);
+                printf("  ?? 第%d条与第%d条（同学期）重复，跳过\n", i + 1, j + 1);
                 valid_flags[i] = 0;
                 dup_skipped++;
                 break;
@@ -187,7 +256,7 @@ static void menu_generate_data(void)
     printf("========================================\n");
     printf("请输入要生成的记录数量（如100、1000、10000）: ");
     
-    fgets(input, sizeof(input), stdin);
+    safe_fgets(input, sizeof(input));
     count = atoi(input);
     
     if (count <= 0) {
@@ -208,8 +277,13 @@ static void menu_generate_data(void)
     }
     g_record_capacity = count;
     
-    /* 强制重新播种，确保每次生成数据不同 */
-    srand((unsigned int)(time(NULL) ^ (rand() << 16) ^ g_record_count));
+    /* 强制重新播种：使用时间+进程相关熵+记录数，确保每次生成数据不同 */
+    {
+        clock_t clk = clock();
+        unsigned int seed = (unsigned int)(time(NULL) ^ (unsigned int)clk 
+                           ^ (unsigned int)(size_t)g_records ^ g_record_count);
+        srand(seed);
+    }
     
     printf("正在生成 %d 条选课记录...\n", count);
     generate_records(g_records, count);
@@ -259,39 +333,39 @@ static void menu_insert_record(void)
     /* 输入学号并立即校验 */
     while (1) {
         printf("请输入学号（12位数字）: ");
-        fgets(rec.student_id, MAX_STUDENT_ID_LEN, stdin);
-        rec.student_id[strcspn(rec.student_id, "\n")] = '\0';
+        safe_fgets(rec.student_id, MAX_STUDENT_ID_LEN);
+        
         
         ret = validate_student_id(rec.student_id);
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ?? %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     /* ===== 输入课程编号，自动匹配课程信息 ===== */
     while (1) {
         printf("请输入课程编号（8位）: ");
-        fgets(rec.course_id, MAX_COURSE_ID_LEN, stdin);
-        rec.course_id[strcspn(rec.course_id, "\n")] = '\0';
+        safe_fgets(rec.course_id, MAX_COURSE_ID_LEN);
+        
         
         /* 尝试在课程库中自动匹配 */
         if (lookup_course(rec.course_id, rec.course_name, &rec.credit)) {
             printf("  → 匹配到课程: %s (%.1f学分)\n", rec.course_name, rec.credit);
             break;
         } else {
-            printf("  ⚠ 未在课程库中找到该编号，请手动输入课程信息\n");
+            printf("  ?? 未在课程库中找到该编号，请手动输入课程信息\n");
             while (1) {
                 printf("请输入课程名称: ");
-                fgets(rec.course_name, MAX_COURSE_NAME_LEN, stdin);
-                rec.course_name[strcspn(rec.course_name, "\n")] = '\0';
+                safe_fgets(rec.course_name, MAX_COURSE_NAME_LEN);
+                
                 if (validate_not_empty(rec.course_name, "课程名称") == OK) break;
-                printf("  ⚠ 课程名称不能为空\n");
+                printf("  ?? 课程名称不能为空\n");
             }
             while (1) {
                 printf("请输入学分: ");
-                fgets(input, sizeof(input), stdin);
+                safe_fgets(input, sizeof(input));
                 rec.credit = (float)atof(input);
 				if( rec.credit >= 0.5f - 0.01f && rec.credit <= 20.0f + 0.01f )break;
-                printf("  ⚠ 学分无效（应为0.5~20.0之间的数）\n");
+                printf("  ?? 学分无效（应为0.5~20.0之间的数）\n");
             }
         }
         break;
@@ -300,38 +374,38 @@ static void menu_insert_record(void)
     /* 姓名 */
     while (1) {
         printf("请输入姓名: ");
-        fgets(rec.name, MAX_NAME_LEN, stdin);
-        rec.name[strcspn(rec.name, "\n")] = '\0';
+        safe_fgets(rec.name, MAX_NAME_LEN);
+        
         ret = validate_not_empty(rec.name, "姓名");
         if (ret == OK) break;
-        printf("  ⚠ %s\n", get_validate_error_msg(ret));
+        printf("  ?? %s\n", get_validate_error_msg(ret));
     }
     
     /* 学院 */
     while (1) {
         printf("请输入学院: ");
-        fgets(rec.college, MAX_COLLEGE_LEN, stdin);
-        rec.college[strcspn(rec.college, "\n")] = '\0';
+        safe_fgets(rec.college, MAX_COLLEGE_LEN);
+        
         ret = validate_not_empty(rec.college, "学院");
         if (ret == OK) break;
-        printf("  ⚠ %s\n", get_validate_error_msg(ret));
+        printf("  ?? %s\n", get_validate_error_msg(ret));
     }
     
     /* ===== 输入学期 ===== */
     while (1) {
         printf("请输入选课学期（格式 YYYY-01 春季 或 YYYY-02 秋季）: ");
-        fgets(rec.semester, MAX_SEMESTER_LEN, stdin);
-        rec.semester[strcspn(rec.semester, "\n")] = '\0';
+        safe_fgets(rec.semester, MAX_SEMESTER_LEN);
+        
         ret = validate_semester(rec.semester);
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ?? %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     /* 去重检查：学号+课程编号+学期 三重键 */
     duplicate = check_duplicate_triple_key(g_records, g_record_count,
                                           rec.student_id, rec.course_id, rec.semester);
     if (duplicate) {
-        printf("  ❌ 错误：学号 %s 本学期（%s）已选修课程 %s，不可重复提交！\n",
+        printf("  ?? 错误：学号 %s 本学期（%s）已选修课程 %s，不可重复提交！\n",
                rec.student_id, rec.semester, rec.course_id);
         printf("  （如需重修请选择其他学期）\n");
         pause_msg(NULL);
@@ -340,13 +414,13 @@ static void menu_insert_record(void)
     
     /* ===== 输入选课日期 ===== */
     while (1) {
-        printf("请输入选课日期（年 月 日，空格分隔）: ");
-        fgets(input, sizeof(input), stdin);
-        sscanf(input, "%d %d %d", &rec.enroll_date.year, 
+        printf("请输入选课日期（格式 yyyy-mm-dd）: ");
+        safe_fgets(input, sizeof(input));
+        sscanf(input, "%d-%d-%d", &rec.enroll_date.year, 
                &rec.enroll_date.month, &rec.enroll_date.day);
         ret = validate_enroll_date(&rec.enroll_date, rec.semester);
         if (ret == OK) break;
-        printf("  ⚠ %s\n", get_validate_error_msg(ret));
+        printf("  ?? %s\n", get_validate_error_msg(ret));
         printf("   提示：本学期选课日期范围应为");
         if (rec.semester[6] == '1') printf(" 2月1日~4月30日\n");
         else                        printf(" 8月1日~10月31日\n");
@@ -355,11 +429,11 @@ static void menu_insert_record(void)
     /* ===== 输入成绩 ===== */
     while (1) {
         printf("请输入成绩（0-100）: ");
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         rec.score = atoi(input);
         ret = validate_score(rec.score);
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ?? %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     /* 插入到数组 */
@@ -371,7 +445,7 @@ static void menu_insert_record(void)
     avl_insert(&g_avl, &rec);
     hash_insert(&g_hash, &rec);
     
-    printf("\n✅ 插入成功！当前共 %d 条记录\n", g_record_count);
+    printf("\n?? 插入成功！当前共 %d 条记录\n", g_record_count);
     print_record_header();
     print_record(&rec);
     print_record_footer();
@@ -398,13 +472,13 @@ static void menu_delete_record(void)
     
     /* 输入学号 */
     printf("请输入要删除记录的学号: ");
-    fgets(student_id, MAX_STUDENT_ID_LEN, stdin);
-    student_id[strcspn(student_id, "\n")] = '\0';
+    safe_fgets(student_id, MAX_STUDENT_ID_LEN);
+    
     
     /* 输入课程编号 */
     printf("请输入课程编号: ");
-    fgets(course_id, MAX_COURSE_ID_LEN, stdin);
-    course_id[strcspn(course_id, "\n")] = '\0';
+    safe_fgets(course_id, MAX_COURSE_ID_LEN);
+    
     
     /* 查找所有匹配学号+课程编号的记录（不同学期可能有重修） */
     for (i = 0; i < g_record_count && match_count < 100; i++) {
@@ -432,7 +506,7 @@ static void menu_delete_record(void)
     if (match_count == 1) {
         /* 仅一条记录，直接确认 */
         printf("\n确认删除该记录? (y/n): ");
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         if (input[0] != 'y' && input[0] != 'Y') {
             printf("操作已取消\n");
             pause_msg(NULL);
@@ -441,7 +515,7 @@ static void menu_delete_record(void)
     } else {
         /* 多条记录（重修导致），让用户选择具体哪条 */
         printf("\n该学生存在多个学期的选课记录，请选择要删除的序号 (1-%d): ", match_count);
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         choice = atoi(input);
         if (choice < 1 || choice > match_count) {
             printf("选择无效\n");
@@ -451,7 +525,7 @@ static void menu_delete_record(void)
         
         printf("\n确认删除第 %d 条记录（学期 %s）? (y/n): ", 
                choice, g_records[match_indices[choice - 1]].semester);
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         if (input[0] != 'y' && input[0] != 'Y') {
             printf("操作已取消\n");
             pause_msg(NULL);
@@ -473,7 +547,7 @@ static void menu_delete_record(void)
     /* 重建三种数据结构，确保数据一致性 */
     sync_to_all_structures();
     
-    printf("✅ 删除成功！剩余 %d 条记录\n", g_record_count);
+    printf("?? 删除成功！剩余 %d 条记录\n", g_record_count);
     pause_msg(NULL);
 }
 
@@ -495,18 +569,18 @@ static void menu_find_record(void)
     printf("  2. 按学号查找（某学生所有选课）\n");
     printf("  3. 按课程编号查找（某课程所有选课学生）\n");
     printf("请选择 (1-3): ");
-    fgets(input, sizeof(input), stdin);
+    safe_fgets(input, sizeof(input));
     mode = atoi(input);
     if (mode < 1 || mode > 3) mode = 1;
     
     switch (mode) {
         case 1:
             printf("请输入学号: ");
-            fgets(student_id, MAX_STUDENT_ID_LEN, stdin);
-            student_id[strcspn(student_id, "\n")] = '\0';
+            safe_fgets(student_id, MAX_STUDENT_ID_LEN);
+            
             printf("请输入课程编号: ");
-            fgets(course_id, MAX_COURSE_ID_LEN, stdin);
-            course_id[strcspn(course_id, "\n")] = '\0';
+            safe_fgets(course_id, MAX_COURSE_ID_LEN);
+            
             
             printf("\n查找结果:\n");
             print_record_header();
@@ -522,8 +596,8 @@ static void menu_find_record(void)
             
         case 2:
             printf("请输入学号: ");
-            fgets(student_id, MAX_STUDENT_ID_LEN, stdin);
-            student_id[strcspn(student_id, "\n")] = '\0';
+            safe_fgets(student_id, MAX_STUDENT_ID_LEN);
+            
             
             printf("\n学生 %s 的所有选课记录:\n", student_id);
             print_record_header();
@@ -538,8 +612,8 @@ static void menu_find_record(void)
             
         case 3:
             printf("请输入课程编号: ");
-            fgets(course_id, MAX_COURSE_ID_LEN, stdin);
-            course_id[strcspn(course_id, "\n")] = '\0';
+            safe_fgets(course_id, MAX_COURSE_ID_LEN);
+            
             
             printf("\n课程 %s 的所有选课学生:\n", course_id);
             print_record_header();
@@ -581,12 +655,12 @@ static void menu_update_record(void)
     printf("========================================\n");
     
     printf("请输入要修改记录的学号: ");
-    fgets(student_id, MAX_STUDENT_ID_LEN, stdin);
-    student_id[strcspn(student_id, "\n")] = '\0';
+    safe_fgets(student_id, MAX_STUDENT_ID_LEN);
+    
     
     printf("请输入要修改记录的课程编号: ");
-    fgets(course_id, MAX_COURSE_ID_LEN, stdin);
-    course_id[strcspn(course_id, "\n")] = '\0';
+    safe_fgets(course_id, MAX_COURSE_ID_LEN);
+    
     
     /* 查找所有匹配记录（支持重修多学期） */
     for (i = 0; i < g_record_count && match_count < 100; i++) {
@@ -618,7 +692,7 @@ static void menu_update_record(void)
         }
         print_record_footer();
         printf("请选择要修改的序号 (1-%d): ", match_count);
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         choice = atoi(input);
         if (choice < 1 || choice > match_count) {
             printf("选择无效\n");
@@ -631,55 +705,55 @@ static void menu_update_record(void)
     /* 输入新数据（带校验） */
     while (1) {
         printf("请输入新的姓名（原: %s）: ", g_records[i].name);
-        fgets(new_rec.name, MAX_NAME_LEN, stdin);
-        new_rec.name[strcspn(new_rec.name, "\n")] = '\0';
+        safe_fgets(new_rec.name, MAX_NAME_LEN);
+        
         ret = validate_not_empty(new_rec.name, "姓名");
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ?? %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     while (1) {
         printf("请输入新的学院（原: %s）: ", g_records[i].college);
-        fgets(new_rec.college, MAX_COLLEGE_LEN, stdin);
-        new_rec.college[strcspn(new_rec.college, "\n")] = '\0';
+        safe_fgets(new_rec.college, MAX_COLLEGE_LEN);
+        
         ret = validate_not_empty(new_rec.college, "学院");
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ?? %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     while (1) {
         printf("请输入新的课程名称（原: %s）: ", g_records[i].course_name);
-        fgets(new_rec.course_name, MAX_COURSE_NAME_LEN, stdin);
-        new_rec.course_name[strcspn(new_rec.course_name, "\n")] = '\0';
+        safe_fgets(new_rec.course_name, MAX_COURSE_NAME_LEN);
+        
         ret = validate_not_empty(new_rec.course_name, "课程名称");
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ?? %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     while (1) {
         printf("请输入新的学分（原: %.1f）: ", g_records[i].credit);
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         new_rec.credit = (float)atof(input);
         if (new_rec.credit >= 0.5f && new_rec.credit <= 20.0f) break;
-        printf("  ⚠ 学分无效（应为0.5~20.0之间的数），请重新输入\n");
+        printf("  ?? 学分无效（应为0.5~20.0之间的数），请重新输入\n");
     }
     
     while (1) {
         printf("请输入新的学期（原: %s）: ", g_records[i].semester);
-        fgets(new_rec.semester, MAX_SEMESTER_LEN, stdin);
-        new_rec.semester[strcspn(new_rec.semester, "\n")] = '\0';
+        safe_fgets(new_rec.semester, MAX_SEMESTER_LEN);
+        
         ret = validate_semester(new_rec.semester);
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ?? %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     while (1) {
         printf("请输入新的成绩（原: %d）: ", g_records[i].score);
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         new_rec.score = atoi(input);
         ret = validate_score(new_rec.score);
         if (ret == OK) break;
-        printf("  ⚠ %s，请重新输入\n", get_validate_error_msg(ret));
+        printf("  ?? %s，请重新输入\n", get_validate_error_msg(ret));
     }
     
     /* 保留键字段 */
@@ -692,7 +766,7 @@ static void menu_update_record(void)
         duplicate = check_duplicate_triple_key(g_records, g_record_count,
                               new_rec.student_id, new_rec.course_id, new_rec.semester);
         if (duplicate) {
-            printf("  ❌ 错误：该学生本学期（%s）已选修此课程，不可重复！\n",
+            printf("  ?? 错误：该学生本学期（%s）已选修此课程，不可重复！\n",
                    new_rec.semester);
             pause_msg(NULL);
             return;
@@ -705,7 +779,7 @@ static void menu_update_record(void)
     /* 重建三种数据结构确保一致性 */
     sync_to_all_structures();
     
-    printf("✅ 修改成功！\n");
+    printf("?? 修改成功！\n");
     pause_msg(NULL);
 }
 
@@ -744,7 +818,7 @@ static void menu_list_records(void)
         print_record_footer();
         
         printf("\n操作: n-下一页 p-上一页 g-跳转 q-返回: ");
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         
         if (input[0] == 'n' || input[0] == 'N') {
             if (page < total_pages - 1) page++;
@@ -752,7 +826,7 @@ static void menu_list_records(void)
             if (page > 0) page--;
         } else if (input[0] == 'g' || input[0] == 'G') {
             printf("请输入目标页码 (1-%d): ", total_pages);
-            fgets(input, sizeof(input), stdin);
+            safe_fgets(input, sizeof(input));
             choice = atoi(input);
             if (choice >= 1 && choice <= total_pages) {
                 page = choice - 1;
@@ -781,7 +855,7 @@ static void menu_save_load(void)
     printf("0. 返回\n");
     printf("请选择: ");
     
-    fgets(input, sizeof(input), stdin);
+    safe_fgets(input, sizeof(input));
     
     switch (input[0]) {
         case '1':
@@ -795,7 +869,7 @@ static void menu_save_load(void)
             break;
         case '3':
             printf("\n请输入新的文件路径（如 data/my_records.csv）: ");
-            fgets(g_data_file, MAX_FILE_PATH, stdin);
+            safe_fgets(g_data_file, MAX_FILE_PATH);
             {
                 int len = strlen(g_data_file);
                 if (len > 0 && g_data_file[len-1] == '\n') {
@@ -843,7 +917,7 @@ static void menu_filter_sort(void)
     
     while (cond_count < 4) {
         printf("选择: ");
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         choice = atoi(input);
         
         if (choice == 0) break;
@@ -852,50 +926,50 @@ static void menu_filter_sort(void)
             case 1:
                 conditions[cond_count].field = FILTER_COURSE_NAME;
                 printf("  请输入课程名称（支持模糊匹配）: ");
-                fgets(conditions[cond_count].str_value, 64, stdin);
-                conditions[cond_count].str_value[strcspn(conditions[cond_count].str_value, "\n")] = '\0';
+                safe_fgets(conditions[cond_count].str_value, 64);
+                
                 conditions[cond_count].is_fuzzy = 1;
                 cond_count++;
                 break;
             case 2:
                 conditions[cond_count].field = FILTER_SEMESTER;
                 printf("  请输入学期（如2024-02）: ");
-                fgets(conditions[cond_count].str_value, 64, stdin);
-                conditions[cond_count].str_value[strcspn(conditions[cond_count].str_value, "\n")] = '\0';
+                safe_fgets(conditions[cond_count].str_value, 64);
+                
                 conditions[cond_count].is_fuzzy = 0;
                 cond_count++;
                 break;
             case 3:
                 conditions[cond_count].field = FILTER_SCORE_RANGE;
                 printf("  请输入成绩最小值: ");
-                fgets(input, sizeof(input), stdin);
+                safe_fgets(input, sizeof(input));
                 conditions[cond_count].int_min = atoi(input);
                 printf("  请输入成绩最大值: ");
-                fgets(input, sizeof(input), stdin);
+                safe_fgets(input, sizeof(input));
                 conditions[cond_count].int_max = atoi(input);
                 cond_count++;
                 break;
             case 4:
                 conditions[cond_count].field = FILTER_COLLEGE;
                 printf("  请输入学院名称（支持模糊匹配）: ");
-                fgets(conditions[cond_count].str_value, 64, stdin);
-                conditions[cond_count].str_value[strcspn(conditions[cond_count].str_value, "\n")] = '\0';
+                safe_fgets(conditions[cond_count].str_value, 64);
+                
                 conditions[cond_count].is_fuzzy = 1;
                 cond_count++;
                 break;
             case 5:
                 conditions[cond_count].field = FILTER_STUDENT_ID;
                 printf("  请输入学号（支持模糊匹配）: ");
-                fgets(conditions[cond_count].str_value, 64, stdin);
-                conditions[cond_count].str_value[strcspn(conditions[cond_count].str_value, "\n")] = '\0';
+                safe_fgets(conditions[cond_count].str_value, 64);
+                
                 conditions[cond_count].is_fuzzy = 1;
                 cond_count++;
                 break;
             case 6:
                 conditions[cond_count].field = FILTER_COURSE_ID;
                 printf("  请输入课程编号（支持模糊匹配）: ");
-                fgets(conditions[cond_count].str_value, 64, stdin);
-                conditions[cond_count].str_value[strcspn(conditions[cond_count].str_value, "\n")] = '\0';
+                safe_fgets(conditions[cond_count].str_value, 64);
+                
                 conditions[cond_count].is_fuzzy = 1;
                 cond_count++;
                 break;
@@ -918,7 +992,7 @@ static void menu_filter_sort(void)
     if (result.count > 0) {
         /* 排序选项 */
         printf("\n是否进行排序? (y/n): ");
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         
         if (input[0] == 'y' || input[0] == 'Y') {
             SortKey keys[5];
@@ -933,12 +1007,12 @@ static void menu_filter_sort(void)
             
             while (key_count < 5) {
                 printf("排序字段: ");
-                fgets(input, sizeof(input), stdin);
+                safe_fgets(input, sizeof(input));
                 key_field = atoi(input);
                 if (key_field == 0) break;
                 
                 printf("  排序方向 (1-升序 2-降序): ");
-                fgets(input, sizeof(input), stdin);
+                safe_fgets(input, sizeof(input));
                 key_dir = atoi(input);
                 
                 if (key_field >= 1 && key_field <= 9 && (key_dir == 1 || key_dir == 2)) {
@@ -975,7 +1049,7 @@ static void menu_filter_sort(void)
                 if (total_pages <= 1) break;
                 
                 printf("n-下一页 p-上一页 q-退出浏览: ");
-                fgets(input, sizeof(input), stdin);
+                safe_fgets(input, sizeof(input));
                 if (input[0] == 'n' && page < total_pages - 1) page++;
                 else if (input[0] == 'p' && page > 0) page--;
                 else if (input[0] == 'q') break;
@@ -984,7 +1058,7 @@ static void menu_filter_sort(void)
         
         /* 导出选项 */
         printf("\n是否导出到文件? (y/n): ");
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         if (input[0] == 'y' || input[0] == 'Y') {
             csv_save_records_from_list("data/filter_result.csv", result.records, result.count);
             printf("结果已导出到 data/filter_result.csv\n");
@@ -1019,7 +1093,7 @@ static void menu_statistics(void)
     printf("0. 返回\n");
     printf("请选择: ");
     
-    fgets(input, sizeof(input), stdin);
+    safe_fgets(input, sizeof(input));
     
     switch (input[0]) {
         case '1':
@@ -1061,24 +1135,15 @@ static void menu_delete_expired(void)
     printf("当前共 %d 条记录\n\n", g_record_count);
     
     /* 让用户设定基准日期 */
-    printf("请输入基准日期（默认 2026-9-1，直接回车使用默认）:\n");
-    printf("年: ");
-    fgets(input, sizeof(input), stdin);
+    printf("请输入基准日期（格式 yyyy-mm-dd，直接回车使用默认 2026-9-1）: ");
+    safe_fgets(input, sizeof(input));
     if (input[0] != '\n' && input[0] != '\0') {
-        int y = atoi(input);
-        if (y >= 2020 && y <= 2099) base_year = y;
-    }
-    printf("月: ");
-    fgets(input, sizeof(input), stdin);
-    if (input[0] != '\n' && input[0] != '\0') {
-        int m = atoi(input);
-        if (m >= 1 && m <= 12) base_month = m;
-    }
-    printf("日: ");
-    fgets(input, sizeof(input), stdin);
-    if (input[0] != '\n' && input[0] != '\0') {
-        int d = atoi(input);
-        if (d >= 1 && d <= 31) base_day = d;
+        int y, m, d;
+        if (sscanf(input, "%d-%d-%d", &y, &m, &d) == 3) {
+            if (y >= 2020 && y <= 2099) base_year = y;
+            if (m >= 1 && m <= 12)      base_month = m;
+            if (d >= 1 && d <= 31)      base_day = d;
+        }
     }
     
     printf("\n基准日期：%04d-%02d-%02d\n", base_year, base_month, base_day);
@@ -1094,7 +1159,7 @@ static void menu_delete_expired(void)
     }
     
     if (total == 0) {
-        printf("当前没有过期记录需要删除 ✓\n");
+        printf("当前没有过期记录需要删除 ??\n");
         pause_msg(NULL);
         return;
     }
@@ -1117,7 +1182,7 @@ static void menu_delete_expired(void)
     print_record_footer();
     
     printf("\n即将删除 %d 条过期记录，是否继续? (y/n): ", total);
-    fgets(input, sizeof(input), stdin);
+    safe_fgets(input, sizeof(input));
     
     if (input[0] != 'y' && input[0] != 'Y') {
         printf("操作已取消\n");
@@ -1142,7 +1207,7 @@ static void menu_delete_expired(void)
         g_record_count = j;
     }
     
-    printf("\n✅ 批量删除完成！\n");
+    printf("\n?? 批量删除完成！\n");
     printf("  链表删除: %d 条\n", deleted_list);
     printf("  AVL树删除: %d 条\n", deleted_avl);
     printf("  哈希表删除: %d 条\n", deleted_hash);
@@ -1150,11 +1215,11 @@ static void menu_delete_expired(void)
     
     /* 一致性检查 */
     if (deleted_list != total || deleted_avl != total || deleted_hash != total) {
-        printf("  ⚠ 注意：各结构删除数量不一致（链表:%d AVL:%d 哈希:%d 预期:%d）\n",
+        printf("  ?? 注意：各结构删除数量不一致（链表:%d AVL:%d 哈希:%d 预期:%d）\n",
                deleted_list, deleted_avl, deleted_hash, total);
         printf("  数组已同步清理，建议保存后重新加载数据\n");
     } else {
-        printf("  ✓ 所有数据结构同步删除，数据一致\n");
+        printf("  ?? 所有数据结构同步删除，数据一致\n");
     }
     
     pause_msg(NULL);
@@ -1430,7 +1495,7 @@ int main(void)
         printf("----------------------------------------\n");
         printf("请选择: ");
         
-        fgets(input, sizeof(input), stdin);
+        safe_fgets(input, sizeof(input));
         
         /* 使用atoi解析数字选项，支持1-13 */
         if (input[0] == 'h' || input[0] == 'H') {

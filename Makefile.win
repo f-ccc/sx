@@ -6,12 +6,12 @@ CC       = gcc.exe -D__DEBUG__
 WINDRES  = windres.exe
 OBJ      = avl.o csv.o hash.o list.o main.o record.o sort.o stat.o performance.o
 LINKOBJ  = avl.o csv.o hash.o list.o main.o record.o sort.o stat.o performance.o
-LIBS     = -L"D:/tools/Dev-Cpp/MinGW64/lib" -L"D:/tools/Dev-Cpp/MinGW64/x86_64-w64-mingw32/lib" -pg -g3
+LIBS     = -L"D:/tools/Dev-Cpp/MinGW64/lib" -L"D:/tools/Dev-Cpp/MinGW64/x86_64-w64-mingw32/lib" -static-libgcc -pg -g3
 INCS     = -I"D:/tools/Dev-Cpp/MinGW64/include" -I"D:/tools/Dev-Cpp/MinGW64/x86_64-w64-mingw32/include" -I"D:/tools/Dev-Cpp/MinGW64/lib/gcc/x86_64-w64-mingw32/4.8.1/include"
 CXXINCS  = -I"D:/tools/Dev-Cpp/MinGW64/include" -I"D:/tools/Dev-Cpp/MinGW64/x86_64-w64-mingw32/include" -I"D:/tools/Dev-Cpp/MinGW64/lib/gcc/x86_64-w64-mingw32/4.8.1/include" -I"D:/tools/Dev-Cpp/MinGW64/lib/gcc/x86_64-w64-mingw32/4.8.1/include/c++"
 BIN      = main.exe
-CXXFLAGS = $(CXXINCS) -pg -g3 -std=c99
-CFLAGS   = $(INCS) -pg -g3 -std=c99
+CXXFLAGS = $(CXXINCS) -pg -g3 gcc -std=c99
+CFLAGS   = $(INCS) -pg -g3 gcc -std=c99
 RM       = rm.exe -f
 
 .PHONY: all all-before all-after clean clean-custom
